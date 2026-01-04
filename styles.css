@@ -1,0 +1,142 @@
+:root{
+  /* Bangkok Hospital CI (primary blue + accent red) */
+  --bh-blue: #0058CB;
+  --bh-red: #E64E4E;
+
+  --app-bg: #f7f9fc;
+  --app-card: #ffffff;
+  --app-border: rgba(15,23,42,.10);
+  --app-text: #0f172a;
+  --app-muted: #5b6b86;
+  --app-primary: var(--bh-blue);
+  --app-accent: var(--bh-red);
+
+  /* Bootstrap overrides */
+  --bs-primary: var(--app-primary);
+  --bs-link-color: var(--app-primary);
+  --bs-link-hover-color: #004bb0;
+}
+
+*{ -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+
+body{ font-family: 'Sarabun', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+
+.app-bg{
+  background: var(--app-bg);
+  color: var(--app-text);
+}
+
+.app-nav{
+  background: rgba(255,255,255,.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--app-border);
+}
+
+.app-badge{
+  width: 32px; height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: rgba(29,78,216,.1);
+  color: var(--app-primary);
+}
+
+.app-card{
+  border: 1px solid var(--app-border);
+  border-radius: 16px;
+  box-shadow: 0 8px 30px rgba(2,6,23,.04);
+}
+
+.app-card-inner{
+  border: 1px solid var(--app-border);
+  border-radius: 16px;
+}
+
+.app-card-header{
+  background: transparent;
+  border-bottom: 1px solid var(--app-border);
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+}
+
+.app-kicker{
+  color: var(--app-muted);
+  font-size: .8rem;
+  letter-spacing: .02em;
+}
+
+.app-stat{
+  border: 1px solid var(--app-border);
+  border-radius: 16px;
+  background: var(--app-card);
+  padding: 14px 16px;
+}
+
+.app-stat-title{
+  color: var(--app-muted);
+  font-size: .82rem;
+}
+
+.app-stat-value{
+  font-size: 1.8rem;
+  font-weight: 700;
+  line-height: 1.2;
+  margin-top: 4px;
+}
+
+.app-suggest{
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow: auto;
+  z-index: 1000;
+  display: none;
+}
+
+.app-suggest .item{
+  padding: 10px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(0,0,0,.06);
+}
+
+.app-suggest .item:hover{
+  background: rgba(2,6,23,.03);
+}
+
+.app-suggest .item .sub{
+  color: var(--app-muted);
+  font-size: .8rem;
+  margin-top: 2px;
+}
+
+.table > :not(caption) > * > *{
+  padding: .55rem .6rem;
+}
+
+.btn-primary{
+  background: var(--app-primary);
+  border-color: var(--app-primary);
+}
+
+.btn-primary:hover{
+  filter: brightness(.95);
+}
+
+.form-control:focus, .form-select:focus{
+  border-color: rgba(0,88,203,.45);
+  box-shadow: 0 0 0 .2rem rgba(29,78,216,.12);
+}
+
+.toast{
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+}
+
+@media (max-width: 576px){
+  .app-stat-value{ font-size: 1.5rem; }
+}
+
+.nav-tabs .nav-link.active, .nav-pills .nav-link.active{ background-color: var(--app-primary); border-color: var(--app-primary); color: #fff; }
