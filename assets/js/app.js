@@ -663,97 +663,414 @@ async function loadVisualization(params = {}) {
   renderMonthChart(data.charts?.byMonth || []);
 }
 
-function destroyChart(c) { try { c?.destroy(); } catch {} }
+
+function destroyChart(c) {
+  try {
+    if (c && typeof c.destroy === 'function') c.destroy();
+  } catch (_) {}
+}
+
+// ===== Lightweight charts (no external Chart.js dependency) =====
+// We intentionally avoid Chart.js because some networks block CDN assets.
+// These helpers render simple charts directly on <canvas> using the 2D context.
+
+const _PE_CHART_PALETTE = [
+  "#0d6efd", "#20c997", "#6f42c1", "#fd7e14", "#198754",
+  "#dc3545", "#0dcaf0", "#6c757d", "#6610f2", "#ffc107"
+];
+
+function _getCanvasSize_(canvas) {
+  const cssW = Math.max(10, Math.floor(canvas.clientWidth || canvas.parentElement?.clientWidth || 600));
+  const cssHAttr = Number(canvas.getAttribute('height'));
+  const cssH = Number.isFinite(cssHAttr) && cssHAttr > 0 ? cssHAttr : Math.max(120, Math.floor(canvas.clientHeight || 180));
+  return { cssW, cssH };
+}
+
+function _setupHiDPICanvas_(canvas) {
+  const { cssW, cssH } = _getCanvasSize_(canvas);
+  const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+  canvas.width = Math.floor(cssW * dpr);
+  canvas.height = Math.floor(cssH * dpr);
+  canvas.style.width = cssW + 'px';
+  canvas.style.height = cssH + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, cssW, cssH };
+}
+
+function _clear_(ctx, w, h) {
+  ctx.clearRect(0, 0, w, h);
+}
+
+function _truncate_(s, n) {
+  const t = String(s || '');
+  if (t.length <= n) return t;
+  return t.slice(0, Math.max(1, n - 1)) + '…';
+}
+
+function _niceTicks_(maxVal, tickCount) {
+  const m = Math.max(1, Number(maxVal) || 1);
+  const tc = Math.max(2, tickCount || 5);
+  const step = Math.pow(10, Math.floor(Math.log10(m / (tc - 1))));
+  const scaled = (m / (tc - 1)) / step;
+  const niceScaled = scaled <= 1 ? 1 : scaled <= 2 ? 2 : scaled <= 5 ? 5 : 10;
+  const niceStep = niceScaled * step;
+  const niceMax = Math.ceil(m / niceStep) * niceStep;
+  const ticks = [];
+  for (let v = 0; v <= niceMax + 1e-9; v += niceStep) ticks.push(v);
+  return { niceMax, ticks };
+}
+
+function _withAutoResize_(canvas, draw) {
+  let raf = 0;
+  const ro = (typeof ResizeObserver !== 'undefined') ? new ResizeObserver(() => {
+    cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(() => draw());
+  }) : null;
+
+  if (ro && canvas.parentElement) ro.observe(canvas.parentElement);
+  window.addEventListener('resize', draw, { passive: true });
+
+  // First draw
+  draw();
+
+  return {
+    destroy() {
+      try { if (ro) ro.disconnect(); } catch (_) {}
+      try { window.removeEventListener('resize', draw); } catch (_) {}
+      try { cancelAnimationFrame(raf); } catch (_) {}
+    }
+  };
+}
+
+function _renderBar_(canvas, labels, values, opts = {}) {
+  const horizontal = !!opts.horizontal;
+
+  return _withAutoResize_(canvas, () => {
+    const { ctx, cssW: w, cssH: h } = _setupHiDPICanvas_(canvas);
+    _clear_(ctx, w, h);
+
+    const padL = horizontal ? 160 : 48;
+    const padR = 16;
+    const padT = 16;
+    const padB = horizontal ? 20 : 42;
+
+    const plotW = Math.max(10, w - padL - padR);
+    const plotH = Math.max(10, h - padT - padB);
+
+    const maxVal = Math.max(1, ...values.map(v => Number(v) || 0));
+    const { niceMax, ticks } = _niceTicks_(maxVal, 5);
+
+    // Axes
+    ctx.strokeStyle = "rgba(0,0,0,0.15)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padL, padT);
+    ctx.lineTo(padL, padT + plotH);
+    ctx.lineTo(padL + plotW, padT + plotH);
+    ctx.stroke();
+
+    // Grid + y ticks
+    ctx.fillStyle = "rgba(0,0,0,0.65)";
+    ctx.font = "12px Sarabun, system-ui, -apple-system, Segoe UI, Roboto";
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+
+    if (!horizontal) {
+      for (const tv of ticks) {
+        const y = padT + plotH - (tv / niceMax) * plotH;
+        ctx.strokeStyle = "rgba(0,0,0,0.08)";
+        ctx.beginPath();
+        ctx.moveTo(padL, y);
+        ctx.lineTo(padL + plotW, y);
+        ctx.stroke();
+        ctx.fillText(String(tv), padL - 8, y);
+      }
+    } else {
+      // x ticks for horizontal bars
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      const xt = ticks;
+      for (const tv of xt) {
+        const x = padL + (tv / niceMax) * plotW;
+        ctx.strokeStyle = "rgba(0,0,0,0.08)";
+        ctx.beginPath();
+        ctx.moveTo(x, padT);
+        ctx.lineTo(x, padT + plotH);
+        ctx.stroke();
+        ctx.fillText(String(tv), x, padT + plotH + 6);
+      }
+    }
+
+    const n = Math.max(0, labels.length);
+    if (!n) return;
+
+    if (!horizontal) {
+      const gap = 6;
+      const barW = Math.max(2, (plotW - gap * (n - 1)) / n);
+
+      // x labels: show up to 8
+      const maxLabels = 8;
+      const step = Math.ceil(n / maxLabels);
+
+      for (let i = 0; i < n; i++) {
+        const v = Number(values[i]) || 0;
+        const x = padL + i * (barW + gap);
+        const barH = (v / niceMax) * plotH;
+        const y = padT + plotH - barH;
+
+        ctx.fillStyle = _PE_CHART_PALETTE[i % _PE_CHART_PALETTE.length];
+        ctx.fillRect(x, y, barW, barH);
+
+        // value
+        ctx.fillStyle = "rgba(0,0,0,0.75)";
+        ctx.font = "12px Sarabun, system-ui";
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(String(v), x + barW / 2, y - 2);
+
+        // label
+        if (i % step === 0) {
+          ctx.save();
+          ctx.translate(x + barW / 2, padT + plotH + 8);
+          ctx.rotate(-Math.PI / 6);
+          ctx.fillStyle = "rgba(0,0,0,0.70)";
+          ctx.font = "11px Sarabun, system-ui";
+          ctx.textAlign = 'right';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(_truncate_(labels[i], 18), 0, 0);
+          ctx.restore();
+        }
+      }
+
+    } else {
+      const gap = 8;
+      const barH = Math.max(10, (plotH - gap * (n - 1)) / n);
+
+      for (let i = 0; i < n; i++) {
+        const v = Number(values[i]) || 0;
+        const y = padT + i * (barH + gap);
+        const barL = (v / niceMax) * plotW;
+
+        ctx.fillStyle = _PE_CHART_PALETTE[i % _PE_CHART_PALETTE.length];
+        ctx.fillRect(padL, y, barL, barH);
+
+        // label left
+        ctx.fillStyle = "rgba(0,0,0,0.75)";
+        ctx.font = "12px Sarabun, system-ui";
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(_truncate_(labels[i], 26), padL - 10, y + barH / 2);
+
+        // value right
+        ctx.textAlign = 'left';
+        ctx.fillText(String(v), padL + barL + 6, y + barH / 2);
+      }
+    }
+  });
+}
+
+function _renderDonut_(canvas, labels, values) {
+  return _withAutoResize_(canvas, () => {
+    const { ctx, cssW: w, cssH: h } = _setupHiDPICanvas_(canvas);
+    _clear_(ctx, w, h);
+
+    const total = values.reduce((a, b) => a + (Number(b) || 0), 0);
+    if (!total) {
+      ctx.fillStyle = "rgba(0,0,0,0.6)";
+      ctx.font = "14px Sarabun, system-ui";
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('ไม่มีข้อมูล', w / 2, h / 2);
+      return;
+    }
+
+    const cx = w * 0.38;
+    const cy = h * 0.48;
+    const rOuter = Math.min(w, h) * 0.30;
+    const rInner = rOuter * 0.62;
+
+    let ang = -Math.PI / 2;
+    for (let i = 0; i < values.length; i++) {
+      const v = Number(values[i]) || 0;
+      if (v <= 0) continue;
+      const a2 = ang + (v / total) * Math.PI * 2;
+
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, rOuter, ang, a2);
+      ctx.closePath();
+      ctx.fillStyle = _PE_CHART_PALETTE[i % _PE_CHART_PALETTE.length];
+      ctx.fill();
+
+      ang = a2;
+    }
+
+    // Cut out inner circle
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.beginPath();
+    ctx.arc(cx, cy, rInner, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+
+    // Center text
+    ctx.fillStyle = "rgba(0,0,0,0.75)";
+    ctx.font = "600 14px Sarabun, system-ui";
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(total), cx, cy);
+    ctx.font = "12px Sarabun, system-ui";
+    ctx.fillText('Reports', cx, cy + 16);
+
+    // Legend (right)
+    const lx = w * 0.70;
+    const ly = 18;
+    const lh = 16;
+    ctx.font = "12px Sarabun, system-ui";
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+
+    for (let i = 0; i < labels.length; i++) {
+      const v = Number(values[i]) || 0;
+      if (v <= 0) continue;
+      const y = ly + i * lh;
+      ctx.fillStyle = _PE_CHART_PALETTE[i % _PE_CHART_PALETTE.length];
+      ctx.fillRect(lx, y - 6, 10, 10);
+      ctx.fillStyle = "rgba(0,0,0,0.75)";
+      const pct = ((v / total) * 100).toFixed(1);
+      ctx.fillText(`${_truncate_(labels[i], 18)} (${pct}%)`, lx + 14, y);
+    }
+  });
+}
+
+function _renderLine_(canvas, labels, values) {
+  return _withAutoResize_(canvas, () => {
+    const { ctx, cssW: w, cssH: h } = _setupHiDPICanvas_(canvas);
+    _clear_(ctx, w, h);
+
+    const padL = 48, padR = 12, padT = 16, padB = 32;
+    const plotW = Math.max(10, w - padL - padR);
+    const plotH = Math.max(10, h - padT - padB);
+
+    const n = Math.max(0, values.length);
+    if (!n) {
+      ctx.fillStyle = "rgba(0,0,0,0.6)";
+      ctx.font = "14px Sarabun, system-ui";
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('ไม่มีข้อมูล', w / 2, h / 2);
+      return;
+    }
+
+    const maxVal = Math.max(1, ...values.map(v => Number(v) || 0));
+    const { niceMax, ticks } = _niceTicks_(maxVal, 4);
+
+    // axes
+    ctx.strokeStyle = "rgba(0,0,0,0.15)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padL, padT);
+    ctx.lineTo(padL, padT + plotH);
+    ctx.lineTo(padL + plotW, padT + plotH);
+    ctx.stroke();
+
+    // grid + y labels
+    ctx.fillStyle = "rgba(0,0,0,0.65)";
+    ctx.font = "12px Sarabun, system-ui";
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (const tv of ticks) {
+      const y = padT + plotH - (tv / niceMax) * plotH;
+      ctx.strokeStyle = "rgba(0,0,0,0.08)";
+      ctx.beginPath();
+      ctx.moveTo(padL, y);
+      ctx.lineTo(padL + plotW, y);
+      ctx.stroke();
+      ctx.fillText(String(tv), padL - 8, y);
+    }
+
+    // points
+    const dx = n === 1 ? 0 : plotW / (n - 1);
+    const pts = [];
+    for (let i = 0; i < n; i++) {
+      const v = Number(values[i]) || 0;
+      const x = padL + i * dx;
+      const y = padT + plotH - (v / niceMax) * plotH;
+      pts.push({ x, y, v });
+    }
+
+    // line
+    ctx.strokeStyle = _PE_CHART_PALETTE[0];
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.stroke();
+
+    // dots
+    ctx.fillStyle = _PE_CHART_PALETTE[0];
+    for (const p of pts) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // x labels: show up to 6
+    const maxLabels = 6;
+    const step = Math.ceil(n / maxLabels);
+    ctx.fillStyle = "rgba(0,0,0,0.65)";
+    ctx.font = "11px Sarabun, system-ui";
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    for (let i = 0; i < n; i += step) {
+      const x = padL + i * dx;
+      ctx.fillText(_truncate_(labels[i], 10), x, padT + plotH + 8);
+    }
+  });
+}
 
 function renderDeptChart(series) {
   destroyChart(state.charts.dept);
   const labels = series.map(x => x.label);
   const values = series.map(x => x.count);
-
-  state.charts.dept = new Chart($('chartDept'), {
-    type: 'bar',
-    data: { labels, datasets: [{ label: 'Reports', data: values }] },
-    options: {
-      responsive: true,
-      plugins: { legend: { display: false } },
-      scales: { x: { ticks: { autoSkip: true, maxRotation: 45, minRotation: 0 } }, y: { beginAtZero: true } },
-    },
-  });
+  state.charts.dept = _renderBar_($('chartDept'), labels, values, { horizontal: false });
 }
 
 function renderSpecialtyChart(series) {
   destroyChart(state.charts.specialty);
   const labels = series.map(x => x.label);
   const values = series.map(x => x.count);
-
-  state.charts.specialty = new Chart($('chartSpecialty'), {
-    type: 'bar',
-    data: { labels, datasets: [{ label: 'Reports', data: values }] },
-    options: {
-      responsive: true,
-      plugins: { legend: { display: false } },
-      scales: { x: { ticks: { autoSkip: true, maxRotation: 45, minRotation: 0 } }, y: { beginAtZero: true } },
-    },
-  });
+  state.charts.specialty = _renderBar_($('chartSpecialty'), labels, values, { horizontal: false });
 }
 
 function renderDrugGroupChart(series) {
   destroyChart(state.charts.drugGroup);
   const labels = series.map(x => x.label);
   const values = series.map(x => x.count);
-
-  state.charts.drugGroup = new Chart($('chartDrugGroup'), {
-    type: 'bar',
-    data: { labels, datasets: [{ label: 'Reports', data: values }] },
-    options: {
-      responsive: true,
-      plugins: { legend: { display: false } },
-      indexAxis: 'y',
-      scales: { x: { beginAtZero: true }, y: { ticks: { autoSkip: false } } },
-    },
-  });
+  state.charts.drugGroup = _renderBar_($('chartDrugGroup'), labels, values, { horizontal: true });
 }
 
 function renderDoctorChart(series) {
   destroyChart(state.charts.doctor);
   const labels = series.map(x => x.label);
   const values = series.map(x => x.count);
-
-  state.charts.doctor = new Chart($('chartDoctor'), {
-    type: 'bar',
-    data: { labels, datasets: [{ label: 'Reports', data: values }] },
-    options: {
-      responsive: true,
-      plugins: { legend: { display: false } },
-      indexAxis: 'y',
-      scales: { x: { beginAtZero: true }, y: { ticks: { autoSkip: false } } },
-    },
-  });
+  state.charts.doctor = _renderBar_($('chartDoctor'), labels, values, { horizontal: true });
 }
 
 function renderSeverityChart(series) {
   destroyChart(state.charts.severity);
   const labels = series.map(x => x.label);
   const values = series.map(x => x.count);
-
-  state.charts.severity = new Chart($('chartSeverity'), {
-    type: 'doughnut',
-    data: { labels, datasets: [{ data: values }] },
-    options: { responsive: true, plugins: { legend: { position: 'bottom' } } },
-  });
+  state.charts.severity = _renderDonut_($('chartSeverity'), labels, values);
 }
 
 function renderMonthChart(series) {
   destroyChart(state.charts.month);
   const labels = series.map(x => x.period);
   const values = series.map(x => x.count);
-
-  state.charts.month = new Chart($('chartMonth'), {
-    type: 'line',
-    data: { labels, datasets: [{ label: 'Reports', data: values, tension: 0.25 }] },
-    options: { responsive: true, plugins: { legend: { display: false } } },
-  });
+  state.charts.month = _renderLine_($('chartMonth'), labels, values);
 }
+
 
 // ---------------- Export XLSX ----------------
 
