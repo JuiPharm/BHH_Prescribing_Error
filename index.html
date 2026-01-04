@@ -10,6 +10,16 @@
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <link href="./assets/css/styles.css" rel="stylesheet" />
+<style>
+  /* Auto-filled fields (read-only) */
+  .app-autofill[readonly]{
+    background-color:#f1f3f5 !important;
+    color:#6c757d !important;
+    border-color:#dee2e6 !important;
+    cursor:not-allowed;
+  }
+  .app-autofill[readonly]::placeholder{ color:#adb5bd !important; }
+</style>
 </head>
 
 <body class="app-bg">
@@ -113,12 +123,12 @@
 
                     <div class="col-12 col-md-6">
                       <label class="form-label">Specialty</label>
-                      <input id="specialty" class="form-control" readonly />
+                      <input id="specialty" class="form-control app-autofill" readonly />
                     </div>
 
                     <div class="col-12 col-md-6">
                       <label class="form-label">ระบุแพทย์ Full-Time / Part-Time</label>
-                      <input id="doctorType" class="form-control" readonly />
+                      <input id="doctorType" class="form-control app-autofill" readonly />
                     </div>
 
                     <div class="col-12">
@@ -195,7 +205,7 @@
     <button id="btnPing" class="btn btn-outline-secondary" type="button">Ping</button>
   </div>
 </div>
-<div id="apiStatusText" class="mt-2 fw-semibold text-secondary">-</div>
+<div id="apiStatusText" class="mt-2 fw-semibold text-success">Success</div>
 <div id="apiUrlHelp" class="form-text small" style="display:none;">ตั้งค่า Web App URL ของ Google Apps Script (ลงท้ายด้วย <code>/exec</code>) เพื่อเชื่อมต่อกับ Google Sheets</div>
 <div id="apiUrlText" style="display:none;"></div>
 <hr />
