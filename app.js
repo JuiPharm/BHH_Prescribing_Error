@@ -1,8 +1,46 @@
 /* Prescribing Error GH Pages Frontend
- * Configure API_URL after deploying Apps Script as a Web App.
+ * Configure Web App URL after deploying Apps Script as a Web App.
  * IMPORTANT: use the /exec URL.
  */
-const API_URL = "https://script.google.com/macros/s/AKfycbzo3N4o8mk9GNTyylyok8sMDpC66s1LQUMIiMsDapK4oBhZqWaFwteerDdct6cb50JN/exec"; // e.g. https://script.google.com/macros/s/XXXXX/exec
+const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbzo3N4o8mk9GNTyylyok8sMDpC66s1LQUMIiMsDapK4oBhZqWaFwteerDdct6cb50JN/exec';
+const API_URL_STORAGE_KEY = 'https://script.google.com/macros/s/AKfycbzo3N4o8mk9GNTyylyok8sMDpC66s1LQUMIiMsDapK4oBhZqWaFwteerDdct6cb50JN/exec';
+
+function normalizeApiUrl_(value) {
+  const v = (value || '').toString().trim();
+  if (!v) return '';
+  // Remove trailing slashes
+  return v.replace(/\/+$/, '');
+}
+
+function getApiUrl_() {
+  const fromQS = new URLSearchParams(window.location.search).get('api');
+  if (fromQS) return normalizeApiUrl_(decodeURIComponent(fromQS));
+  const fromStorage = localStorage.getItem(API_URL_STORAGE_KEY);
+  if (fromStorage) return normalizeApiUrl_(fromStorage);
+  return normalizeApiUrl_(DEFAULT_API_URL);
+}
+
+function setApiUrl_(value) {
+  const v = normalizeApiUrl_(value);
+  if (v) localStorage.setItem(API_URL_STORAGE_KEY, v);
+  else localStorage.removeItem(API_URL_STORAGE_KEY);
+  renderApiUrl_();
+  return v;
+}
+
+function getApiUrlOrThrow_() {
+  const v = getApiUrl_();
+  if (!v) throw new Error('ยังไม่ได้ตั้งค่า Web App URL (กดปุ่ม “ตั้งค่า” ในส่วน API Connection)');
+  return v;
+}
+
+function renderApiUrl_() {
+  const el = document.getElementById('apiUrlText');
+  if (!el) return;
+  const v = getApiUrl_();
+  el.textContent = v || '-';
+}
+// e.g. https://script.google.com/macros/s/XXXXX/exec
 
 const state = {
   ref: null,
@@ -17,22 +55,31 @@ function setText(id, text) { $(id).textContent = text; }
 
 function toast(message, type = "info") {
   const host = $("toastHost");
+  if (!host) { console.warn("toastHost not found"); return; }
+
   const el = document.createElement("div");
   el.className = "toast align-items-center show";
   el.setAttribute("role", "alert");
+
+  // Normalize Bootstrap contextual classes
+  const allowed = new Set(["primary","secondary","success","danger","warning","info","light","dark"]);
+  const badgeType = allowed.has(type) ? type : (type === "error" ? "danger" : "secondary");
+
   el.innerHTML = `
     <div class="d-flex">
       <div class="toast-body">
-        <span class="badge rounded-pill me-2 text-bg-${type === "danger" ? "danger" : type === "success" ? "success" : "secondary"}">${type.toUpperCase()}</span>
+        <span class="badge rounded-pill me-2 text-bg-${badgeType}">${escapeHtml(String(type).toUpperCase())}</span>
         ${escapeHtml(message)}
       </div>
       <button type="button" class="btn-close me-2 m-auto" aria-label="Close"></button>
     </div>
   `;
+
   host.appendChild(el);
-  el.querySelector(".btn-close").addEventListener("click", () => el.remove());
+  el.querySelector(".btn-close")?.addEventListener("click", () => el.remove());
   setTimeout(() => { if (el.isConnected) el.remove(); }, 4500);
 }
+
 
 function escapeHtml(str) {
   return String(str ?? "").replace(/[&<>"']/g, s => ({
@@ -41,36 +88,83 @@ function escapeHtml(str) {
 }
 
 async function apiGet(action, params = {}) {
-  const u = new URL(API_URL);
-  u.searchParams.set("action", action);
-  u.searchParams.set("t", String(Date.now()));
-  Object.entries(params).forEach(([k, v]) => {
-    if (v === undefined || v === null || String(v).trim() === "") return;
+  // Use JSONP to avoid CORS limitations on Apps Script Web App across domains (e.g., GitHub Pages).
+  const baseUrl = getApiUrlOrThrow_();
+  const u = new URL(baseUrl);
+  u.searchParams.set('action', action);
+  u.searchParams.set('t', String(Date.now())); // cache-buster
+
+  // Merge params into querystring
+  Object.entries(params || {}).forEach(([k, v]) => {
+    if (v === undefined || v === null || v === '') return;
     u.searchParams.set(k, String(v));
   });
 
-  const res = await fetch(u.toString(), { method: "GET" });
-  const text = await res.text();
-  let json;
-  try { json = JSON.parse(text); } catch { throw new Error("API returned non-JSON (GET)."); }
-  if (!json.success) throw new Error(json.message || "API error");
-  return json.data;
+  return new Promise((resolve, reject) => {
+    const cbName = `__pe_cb_${Math.random().toString(36).slice(2)}`;
+    let done = false;
+
+    function cleanup() {
+      if (done) return;
+      done = true;
+      try { delete window[cbName]; } catch (_) {}
+      if (script && script.parentNode) script.parentNode.removeChild(script);
+    }
+
+    window[cbName] = (payload) => {
+      cleanup();
+      if (!payload || payload.success !== true) {
+        reject(new Error((payload && payload.message) || 'API error'));
+        return;
+      }
+      resolve(payload.data);
+    };
+
+    u.searchParams.set('callback', cbName);
+
+    const script = document.createElement('script');
+    script.src = u.toString();
+    script.async = true;
+    script.onerror = () => {
+      cleanup();
+      reject(new Error('เชื่อมต่อ API ไม่สำเร็จ (ตรวจสอบว่า Deploy เป็น Web app และ URL ถูกต้อง)'));
+    };
+
+    document.head.appendChild(script);
+  });
 }
+
 
 async function apiPost(action, data = {}) {
-  // Avoid preflight: do NOT use application/json
-  const res = await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({ action, data }),
-  });
+  // We try a normal CORS fetch first (so we can read the response).
+  // If the browser blocks reading due to CORS, fall back to `no-cors` (fire-and-forget),
+  // then the UI can refresh via JSONP (apiGet) to confirm.
+  const url = getApiUrlOrThrow_();
+  const payload = JSON.stringify({ action, data });
 
-  const text = await res.text();
-  let json;
-  try { json = JSON.parse(text); } catch { throw new Error("API returned non-JSON (POST)."); }
-  if (!json.success) throw new Error(json.message || "API error");
-  return json.data;
+  const options = {
+    method: "POST",
+    redirect: "follow",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: payload,
+  };
+
+  try {
+    const res = await fetch(url, options);
+    const text = await res.text();
+    const json = JSON.parse(text);
+
+    if (!json || json.success !== true) {
+      throw new Error((json && json.message) || "API error");
+    }
+    return json.data;
+  } catch (err) {
+    // Fallback: send without reading response
+    await fetch(url, { ...options, mode: "no-cors" });
+    return { _opaque: true };
+  }
 }
+
 
 function renderOptions(selectEl, options, { placeholder = "-", valueKey = null, labelKey = null } = {}) {
   selectEl.innerHTML = "";
@@ -100,7 +194,7 @@ function fmtDateTime(dt) {
 
 async function loadReferenceData() {
   setText("lastSync", "Loading…");
-  const ref = await apiGet("getReferenceData");
+  const ref = await apiGet("ping");
   state.ref = ref;
 
   // Dropdown lists
@@ -266,7 +360,7 @@ async function validateAdmin() {
   }
 
   try {
-    const data = await apiPost("validateStaff", { staffId });
+    const data = await apiGet("validateStaff", { staffId });
     state.admin = { staffId, role: data.role, ok: data.ok, name: data.name || "" };
     if (data.ok && data.role === "Admin") {
       $("adminBadge").className = "badge rounded-pill text-bg-success";
@@ -643,7 +737,7 @@ function renderMonthChart(series) {
 // ---------------- Init ----------------
 
 async function init() {
-  $("apiUrlText").textContent = API_URL;
+  renderApiUrl_();
 
   // Modals
   modalDoctor = new bootstrap.Modal($("modalDoctor"));
@@ -657,7 +751,7 @@ async function init() {
 
   $("btnPing").addEventListener("click", async () => {
     try {
-      await apiGet("getReferenceData");
+      await apiGet("ping");
       toast("Ping OK", "success");
     } catch (e) {
       toast(e.message, "danger");
@@ -754,19 +848,48 @@ async function init() {
     try { await loadVisualization({}); } catch (e) { toast(e.message, "danger"); }
   });
 
-  // Initial load
-  if (API_URL.includes("PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE")) {
-    toast("กรุณาแก้ไข API_URL ใน assets/js/app.js ให้เป็น Web App URL ของ Apps Script ก่อนใช้งาน", "danger");
-    return;
+  // API settings
+  renderApiUrl_();
+
+  const modalEl = document.getElementById("modalApi");
+  const apiModal = modalEl ? new bootstrap.Modal(modalEl) : null;
+
+  if ($("btnApiSettings") && apiModal) {
+    $("btnApiSettings").addEventListener("click", () => {
+      $("apiUrlInput").value = getApiUrl_();
+      apiModal.show();
+    });
   }
 
-  try {
-    await loadReferenceData();
-    await loadManage();
-    await loadVisualization({});
-  } catch (e) {
-    toast(e.message, "danger");
+  if ($("btnSaveApiUrl") && apiModal) {
+    $("btnSaveApiUrl").addEventListener("click", async () => {
+      const v = setApiUrl_($("apiUrlInput").value);
+      apiModal.hide();
+      if (!v) {
+        toast("กรุณาใส่ Web App URL ให้ถูกต้อง", "danger");
+        return;
+      }
+      toast("บันทึก Web App URL แล้ว", "success");
+      await safeInitialLoad_();
+    });
   }
+
+  async function safeInitialLoad_() {
+    try {
+      if (!getApiUrl_()) {
+        if (apiModal) apiModal.show();
+        return;
+      }
+      await loadReferenceData();
+      await loadManage();
+      await loadVisualization({});
+    } catch (e) {
+      toast(e.message || "เชื่อมต่อ API ไม่สำเร็จ", "danger");
+    }
+  }
+
+  // Initial load
+  await safeInitialLoad_();
 }
 
 function getVizParamsFromUI() {
