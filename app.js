@@ -2,7 +2,7 @@
  * Configure API_URL after deploying Apps Script as a Web App.
  * IMPORTANT: use the /exec URL.
  */
-const API_URL = "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE"; // e.g. https://script.google.com/macros/s/XXXXX/exec
+const API_URL = "https://script.google.com/macros/s/AKfycbzo3N4o8mk9GNTyylyok8sMDpC66s1LQUMIiMsDapK4oBhZqWaFwteerDdct6cb50JN/exec"; // e.g. https://script.google.com/macros/s/XXXXX/exec
 
 const state = {
   ref: null,
