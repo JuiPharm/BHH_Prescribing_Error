@@ -1,12 +1,9 @@
-
 <!doctype html>
 <html lang="th">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Prescribing Error Reporting</title>
-  <link rel="icon" href="./favicon.ico">
-
 
   <!-- Bootstrap 5 -->
   <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css" rel="stylesheet" />
@@ -191,19 +188,20 @@
                 <h6 class="mb-0">API Connection</h6>
               </div>
               <div class="card-body">
-                <div class="d-flex align-items-center justify-content-between">
-                  <div class="small text-muted">Web App URL</div>
-                  <div class="btn-group btn-group-sm" role="group" aria-label="API controls">
-                    <button id="btnApiSettings" class="btn btn-outline-secondary" type="button">ตั้งค่า</button>
-                    <button id="btnPing" class="btn btn-outline-secondary" type="button">Ping</button>
-                  </div>
-                </div>
-                <div id="apiUrlText" class="small mt-2 text-break"></div>
-                <div id="apiUrlHelp" class="form-text small">ตั้งค่า Web App URL ของ Google Apps Script (ลงท้ายด้วย <code>/exec</code>) เพื่อเชื่อมต่อกับ Google Sheets</div>
-                <hr />
-                <div class="small text-muted">Last sync</div>
-                <div id="lastSync" class="fw-semibold">-</div>
-              </div>
+
+<div class="d-flex align-items-center justify-content-between">
+  <div class="small text-muted">Status</div>
+  <div class="btn-group btn-group-sm" role="group" aria-label="API controls">
+    <button id="btnPing" class="btn btn-outline-secondary" type="button">Ping</button>
+  </div>
+</div>
+<div id="apiStatusText" class="mt-2 fw-semibold text-secondary">-</div>
+<div id="apiUrlHelp" class="form-text small" style="display:none;">ตั้งค่า Web App URL ของ Google Apps Script (ลงท้ายด้วย <code>/exec</code>) เพื่อเชื่อมต่อกับ Google Sheets</div>
+<div id="apiUrlText" style="display:none;"></div>
+<hr />
+<div class="small text-muted">Last sync</div>
+<div id="lastSync" class="fw-semibold">-</div>
+</div>
             </div>
 
             <div class="card app-card">
