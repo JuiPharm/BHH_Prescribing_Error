@@ -190,9 +190,13 @@
               <div class="card-body">
                 <div class="d-flex align-items-center justify-content-between">
                   <div class="small text-muted">Web App URL</div>
-                  <button id="btnPing" class="btn btn-sm btn-outline-secondary">Ping</button>
+                  <div class="btn-group btn-group-sm" role="group" aria-label="API controls">
+                    <button id="btnApiSettings" class="btn btn-outline-secondary" type="button">ตั้งค่า</button>
+                    <button id="btnPing" class="btn btn-outline-secondary" type="button">Ping</button>
+                  </div>
                 </div>
                 <div id="apiUrlText" class="small mt-2 text-break"></div>
+                <div id="apiUrlHelp" class="form-text small">ตั้งค่า Web App URL ของ Google Apps Script (ลงท้ายด้วย <code>/exec</code>) เพื่อเชื่อมต่อกับ Google Sheets</div>
                 <hr />
                 <div class="small text-muted">Last sync</div>
                 <div id="lastSync" class="fw-semibold">-</div>
@@ -587,5 +591,34 @@
 
   <!-- app -->
   <script src="./assets/js/app.js"></script>
+
+  <!-- API Settings Modal -->
+  <div class="modal fade" id="modalApi" tabindex="-1" aria-labelledby="modalApiLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="modalApiLabel">ตั้งค่า Web App URL</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-2">
+            <label class="form-label">Web App URL (Google Apps Script)</label>
+            <input id="apiUrlInput" type="url" class="form-control" placeholder="https://script.google.com/macros/s/.../exec" />
+            <div class="form-text">
+              วิธีดู URL: Deploy &gt; New deployment &gt; Select type: Web app &gt; Copy “Web app URL” (ต้องเป็น <code>/exec</code>)
+            </div>
+          </div>
+          <div class="alert alert-secondary small mb-0">
+            หมายเหตุ: ระบบจะเก็บ URL ไว้ในเบราว์เซอร์ (localStorage) ของเครื่องนี้เท่านั้น
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-light" data-bs-dismiss="modal">ยกเลิก</button>
+          <button type="button" id="btnSaveApiUrl" class="btn btn-primary">บันทึก</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>
