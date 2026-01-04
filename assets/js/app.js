@@ -11,7 +11,7 @@
  */
 
 const DEFAULT_API_URL = '';
-const API_URL_STORAGE_KEY = 'https://script.google.com/macros/s/AKfycbzo3N4o8mk9GNTyylyok8sMDpC66s1LQUMIiMsDapK4oBhZqWaFwteerDdct6cb50JN/exec';
+const API_URL_STORAGE_KEY = 'https://script.google.com/macros/s/AKfycbyIy7tJrZEAeesfARaBVgPaPCt4WXqcLRCIPOJ2_zPWxWCxWZO0pjYrJeCF6m-DEdjF/exec';
 
 function normalizeApiUrl_(value) {
   const v = (value || '').toString().trim();
