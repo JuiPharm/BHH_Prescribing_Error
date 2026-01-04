@@ -10,8 +10,9 @@
  *   then refreshes data via JSONP.
  */
 
-const DEFAULT_API_URL = '';
-const API_URL_STORAGE_KEY = 'https://script.google.com/macros/s/AKfycbyIy7tJrZEAeesfARaBVgPaPCt4WXqcLRCIPOJ2_zPWxWCxWZO0pjYrJeCF6m-DEdjF/exec';
+const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbyIy7tJrZEAeesfARaBVgPaPCt4WXqcLRCIPOJ2_zPWxWCxWZO0pjYrJeCF6m-DEdjF/exec';
+const LOCK_API_URL = true; // Production: user does not need to set Web App URL
+const API_URL_STORAGE_KEY = 'pe_api_url';
 
 function normalizeApiUrl_(value) {
   const v = (value || '').toString().trim();
@@ -20,14 +21,29 @@ function normalizeApiUrl_(value) {
 }
 
 function getApiUrl_() {
+  // Admin override (for testing): ?api=<WEB_APP_URL>
   const fromQS = new URLSearchParams(window.location.search).get('api');
   if (fromQS) return normalizeApiUrl_(decodeURIComponent(fromQS));
+
+  const def = normalizeApiUrl_(DEFAULT_API_URL);
+
+  // Production mode: lock to DEFAULT_API_URL (ignore localStorage to avoid stale/bad configs).
+  if (LOCK_API_URL) return def;
+
   const fromStorage = localStorage.getItem(API_URL_STORAGE_KEY);
   if (fromStorage) return normalizeApiUrl_(fromStorage);
-  return normalizeApiUrl_(DEFAULT_API_URL);
+  return def;
 }
 
 function setApiUrl_(value) {
+  // In production, Web App URL is fixed in DEFAULT_API_URL.
+  // We keep this for compatibility, but do not persist user changes.
+  if (LOCK_API_URL) {
+    try { localStorage.removeItem(API_URL_STORAGE_KEY); } catch (_) {}
+    renderApiUrl_();
+    return getApiUrl_();
+  }
+
   const v = normalizeApiUrl_(value);
   if (v) localStorage.setItem(API_URL_STORAGE_KEY, v);
   else localStorage.removeItem(API_URL_STORAGE_KEY);
@@ -37,15 +53,18 @@ function setApiUrl_(value) {
 
 function getApiUrlOrThrow_() {
   const v = getApiUrl_();
-  if (!v) throw new Error('ยังไม่ได้ตั้งค่า Web App URL (กดปุ่ม “ตั้งค่า” ในส่วน API Connection)');
+  if (!v) throw new Error('ยังไม่ได้ตั้งค่า Web App URL (ผู้ดูแลระบบต้องตั้งค่า DEFAULT_API_URL ในไฟล์ app.js)');
   return v;
 }
 
 function renderApiUrl_() {
-  const el = document.getElementById('apiUrlText');
+  // Do not display Web App URL to end users.
+  const el = document.getElementById('apiStatusText');
   if (!el) return;
   const v = getApiUrl_();
-  el.textContent = v || '-';
+  el.textContent = v ? 'Configured' : 'Not configured';
+  el.classList.remove('text-success','text-danger','text-warning','text-secondary');
+  el.classList.add(v ? 'text-secondary' : 'text-danger');
 }
 
 const state = {
@@ -86,6 +105,28 @@ function toast(message, type = 'info') {
   host.appendChild(el);
   el.querySelector('.btn-close')?.addEventListener('click', () => el.remove());
   setTimeout(() => { if (el.isConnected) el.remove(); }, 4500);
+}
+
+
+
+function setApiStatus_(text, tone = 'secondary') {
+  const el = document.getElementById('apiStatusText');
+  if (!el) return;
+  el.textContent = String(text || '-');
+  el.classList.remove('text-success','text-danger','text-warning','text-secondary');
+  const allowed = new Set(['success','danger','warning','secondary']);
+  el.classList.add(`text-${allowed.has(tone) ? tone : 'secondary'}`);
+}
+
+function applyApiUiPolicy_() {
+  // Hide API settings UI for end users (URL is set by DEFAULT_API_URL).
+  if (!LOCK_API_URL) return;
+  const btn = document.getElementById('btnApiSettings');
+  if (btn) btn.style.display = 'none';
+  const help = document.getElementById('apiUrlHelp');
+  if (help) help.style.display = 'none';
+  const urlText = document.getElementById('apiUrlText');
+  if (urlText) urlText.style.display = 'none';
 }
 
 function escapeHtml(str) {
@@ -239,20 +280,38 @@ function renderReferenceData_(ref) {
 
 async function loadReferenceData() {
   setText('lastSync', 'Loading…');
+  setApiStatus_('Connecting…', 'secondary');
   const ref = await apiGet('getReferenceData');
   renderReferenceData_(ref);
   setText('lastSync', fmtDateTime(new Date()));
+  setApiStatus_('Connected', 'success');
 }
 
 // ---------------- Report form ----------------
 
 function resetReportForm() {
-  $('reportForm')?.reset();
-  $('doctorSuggest') && ($('doctorSuggest').style.display = 'none');
+  // Clear all user-entered fields after successful submit (or when user clicks reset).
+  try { $('reportForm')?.reset(); } catch (_) {}
+
+  // Explicit clear (for fields that may be outside form defaults / dynamically populated).
+  [
+    'prescribingErrorFrom','hn','eventDate','eventTime','department',
+    'doctorSearch','specialty','doctorType','errorDetails','consult',
+    'errorType','medicationReconciliation','reporter','drug1','drug2',
+    'drugGroup','severityLevel'
+  ].forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    el.value = '';
+  });
+
+  const suggest = $('doctorSuggest');
+  if (suggest) suggest.style.display = 'none';
+
   state.selectedDoctor = null;
-  if ($('doctorSearch')) $('doctorSearch').value = '';
-  if ($('specialty')) $('specialty').value = '';
-  if ($('doctorType')) $('doctorType').value = '';
+
+  // Focus first field for faster data entry
+  $('prescribingErrorFrom')?.focus();
 }
 
 function getReportPayload() {
@@ -1099,6 +1158,9 @@ async function exportXlsx() {
 // ---------------- Init ----------------
 
 async function init() {
+  // Production: prevent stale localStorage API URLs from breaking users
+  if (LOCK_API_URL) { try { localStorage.removeItem(API_URL_STORAGE_KEY); } catch (_) {} }
+  applyApiUiPolicy_();
   renderApiUrl_();
 
   // Modals
@@ -1120,6 +1182,7 @@ async function init() {
     try {
       const info = await apiGet('ping');
       toast(`Ping OK (${info.spreadsheetName || ''})`, 'success');
+      setApiStatus_('Connected', 'success');
     } catch (e) {
       toast(e.message, 'danger');
     }
@@ -1252,6 +1315,7 @@ async function init() {
   async function safeInitialLoad_() {
     try {
       if (!getApiUrl_()) {
+        setApiStatus_('Not configured', 'danger');
         if (apiModal) apiModal.show();
         return;
       }
@@ -1261,6 +1325,7 @@ async function init() {
       await loadVisualization({});
     } catch (e) {
       toast(e.message || 'เชื่อมต่อ API ไม่สำเร็จ', 'danger');
+      setApiStatus_('Disconnected', 'danger');
     }
   }
 
