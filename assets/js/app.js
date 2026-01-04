@@ -41,7 +41,6 @@ function setApiUrl_(value) {
   if (LOCK_API_URL) {
     try { localStorage.removeItem(API_URL_STORAGE_KEY); } catch (_) {}
     renderApiUrl_();
-  applyAdminVisibility_();
     return getApiUrl_();
   }
 
@@ -126,35 +125,6 @@ function applyApiUiPolicy_() {
   if (help) help.style.display = 'none';
   const urlText = document.getElementById('apiUrlText');
   if (urlText) urlText.style.display = 'none';
-}
-function isAdmin_() {
-  return Boolean(state.admin && state.admin.ok && String(state.admin.role || '').trim() === 'Admin');
-}
-
-function applyAdminVisibility_() {
-  const can = isAdmin_();
-
-  // Manage tab (nav + pane)
-  const navLi = document.getElementById('navManageTab')
-    || document.querySelector('[data-bs-target="#tab-manage"]')?.closest('li');
-  const navBtn = document.querySelector('[data-bs-target="#tab-manage"]');
-  const pane = document.getElementById('tab-manage');
-
-  if (navLi) navLi.classList.toggle('d-none', !can);
-  if (pane) pane.classList.toggle('d-none', !can);
-
-  // If user is not Admin but is currently on Manage tab, force back to main tab.
-  if (!can && navBtn && navBtn.classList.contains('active')) {
-    const mainBtn = document.querySelector('[data-bs-target="#tab-report"]');
-    if (mainBtn) mainBtn.click();
-  }
-
-  // Export button (Visualization) - Admin only
-  const btnExport = document.getElementById('btnExportXlsx');
-  if (btnExport) btnExport.classList.toggle('d-none', !can);
-
-  // Keep Manage action buttons disabled appropriately
-  toggleManageControls();
 }
 
 function escapeHtml(str) {
@@ -458,8 +428,6 @@ async function validateAdmin() {
     if ($('adminBadge')) $('adminBadge').className = 'badge rounded-pill text-bg-secondary';
     setText('adminBadge', 'Not verified');
     toggleManageControls();
-    applyAdminVisibility_();
-    applyAdminVisibility_();
     return;
   }
 
@@ -488,14 +456,9 @@ async function validateAdmin() {
 }
 
 function requireAdminClient() {
-  if (!isAdmin_()) {
-    applyAdminVisibility_();
-    toast('ต้องยืนยัน StaffID ที่เป็น Admin ก่อนจึงจะใช้งานส่วนนี้ได้', 'danger');
-    throw new Error('Permission denied');
-  }
-  return true;
+  if (!state.admin.ok) throw new Error('กรุณาตรวจสอบ Admin StaffID ก่อน');
+  if (state.admin.role !== 'Admin') throw new Error('สิทธิ์ไม่เพียงพอ: Role ไม่ใช่ Admin');
 }
-
 
 function toggleManageControls() {
   const can = state.admin.ok && state.admin.role === 'Admin';
@@ -508,7 +471,6 @@ function toggleManageControls() {
 // ---------------- Manage Data ----------------
 
 async function loadManage() {
-  requireAdminClient();
   const [docRes, staffRes, deptRes] = await Promise.all([
     apiGet('listDoctors'),
     apiGet('listStaff'),
@@ -1170,7 +1132,6 @@ function renderMonthChart(series) {
 // ---------------- Export XLSX ----------------
 
 async function exportXlsx() {
-  requireAdminClient();
   if (typeof XLSX === 'undefined') {
     throw new Error('ไม่พบไลบรารี XLSX (ตรวจสอบว่าเพิ่ม script xlsx.full.min.js ใน index.html แล้ว)');
   }
