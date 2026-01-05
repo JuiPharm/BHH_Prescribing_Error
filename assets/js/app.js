@@ -10,7 +10,7 @@
  *   then refreshes data via JSONP.
  */
 
-const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbyIy7tJrZEAeesfARaBVgPaPCt4WXqcLRCIPOJ2_zPWxWCxWZO0pjYrJeCF6m-DEdjF/exec';
+const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbzo3N4o8mk9GNTyylyok8sMDpC66s1LQUMIiMsDapK4oBhZqWaFwteerDdct6cb50JN/exec';
 const LOCK_API_URL = true; // Production: user does not need to set Web App URL
 const API_URL_STORAGE_KEY = 'pe_api_url';
 
@@ -59,7 +59,6 @@ function getApiUrlOrThrow_() {
 
 function renderApiUrl_() {
   // Do not display Web App URL to end users.
-  // Show a friendly status instead.
   const v = getApiUrl_();
   if (v) setApiStatus_('Success', 'success');
   else setApiStatus_('Not configured', 'danger');
@@ -127,6 +126,15 @@ function applyApiUiPolicy_() {
   if (urlText) urlText.style.display = 'none';
 }
 
+
+function markSystemFilled_(id) {
+  const el = $(id);
+  if (!el) return;
+  el.classList.add('app-system-filled');
+  try { el.readOnly = true; } catch (_) {}
+  el.setAttribute('aria-readonly', 'true');
+}
+
 function escapeHtml(str) {
   return String(str ?? '').replace(/[&<>"']/g, s => ({
     '&': '&amp;',
@@ -137,26 +145,6 @@ function escapeHtml(str) {
   }[s]));
 }
 
-
-
-function normalizeText_(v) {
-  return String(v ?? '').trim();
-}
-
-function normalizeKey_(v) {
-  return normalizeText_(v).toLowerCase();
-}
-
-function normalizeDoctor_(d) {
-  const obj = d || {};
-  return {
-    id: obj.id ?? obj.ID ?? obj.rowId ?? obj.rowID ?? obj.RowId ?? '',
-    name: normalizeText_(obj.name ?? obj.Name ?? obj.doctor ?? obj.Doctor ?? ''),
-    department: normalizeText_(obj.department ?? obj.Department ?? ''),
-    specialty: normalizeText_(obj.specialty ?? obj.Specialty ?? ''),
-    type: normalizeText_(obj.type ?? obj.Type ?? ''),
-  };
-}
 async function apiGet(action, params = {}) {
   // JSONP to bypass CORS.
   const baseUrl = getApiUrlOrThrow_();
@@ -261,23 +249,16 @@ function fmtDateTime(dt) {
 function renderReferenceData_(ref) {
   state.ref = ref || { departments: [], doctors: [], staff: [], lists: {} };
 
-// Normalize reference payload (support both camelCase and Sheet-style headers)
-state.ref.departments = (state.ref.departments || [])
-  .map(d => (typeof d === 'string' ? d : (d.department ?? d.Department ?? '')))
-  .map(normalizeText_)
-  .filter(Boolean);
-
-state.ref.doctors = (state.ref.doctors || [])
-  .map(normalizeDoctor_)
-  .filter(d => d.name);
-
-
-
   // Dropdown lists
   renderOptions($('prescribingErrorFrom'), state.ref.lists?.prescribingErrorFrom || [], { placeholder: 'เลือก…' });
   renderOptions($('consult'), state.ref.lists?.consultResults || [], { placeholder: 'เลือก…' });
   renderOptions($('errorType'), state.ref.lists?.errorTypes || [], { placeholder: 'เลือก…' });
-  renderOptions($('medicationReconciliation'), state.ref.lists?.medicationReconciliation || [], { placeholder: 'เลือก…' });
+  // Process ที่ตรวจพบ Prescribing Error (Medication reconciliation / Home Med)
+const mrList = Array.isArray(state.ref.lists?.medicationReconciliation)
+  ? [...state.ref.lists.medicationReconciliation]
+  : [];
+if (!mrList.some(x => normalizeKey_(x) === 'none of above')) mrList.push('None of Above');
+renderOptions($('medicationReconciliation'), mrList, { placeholder: 'เลือก…' });
   renderOptions($('drugGroup'), state.ref.lists?.drugGroups || [], { placeholder: 'เลือก…' });
   renderOptions($('severityLevel'), state.ref.lists?.severityLevels || [], { placeholder: 'เลือก…' });
 
@@ -314,7 +295,7 @@ async function loadReferenceData() {
   const ref = await apiGet('getReferenceData');
   renderReferenceData_(ref);
   setText('lastSync', fmtDateTime(new Date()));
-  setApiStatus_('Success', 'success');
+  setApiStatus_('Connected', 'success');
 }
 
 // ---------------- Report form ----------------
@@ -431,22 +412,19 @@ function showDoctorSuggest(items) {
 
 function doctorQuery(q) {
   const ref = state.ref;
-  const docs = Array.isArray(ref?.doctors) ? ref.doctors : [];
-  const query = normalizeKey_(q || '');
+  if (!ref?.doctors) return [];
+
+  const query = (q || '').trim().toLowerCase();
   if (!query) return [];
 
-  const deptFilter = normalizeKey_($('department')?.value || '');
-
-  // Prefer doctors in selected department; if there is a mismatch between
-  // Department sheet and Doctor sheet naming, fall back to all doctors (still searchable).
-  let pool = docs;
-  if (deptFilter) {
-    const inDept = docs.filter(d => normalizeKey_(d.department) === deptFilter);
-    pool = inDept.length ? inDept : docs;
-  }
-
-  const matched = pool.filter(d => {
+  const deptFilter = $('department')?.value.trim() || '';
+  const list = ref.doctors.filter(d => {
     if (!d?.name) return false;
+    if (deptFilter && String(d.department || '').trim() !== deptFilter) return false;
+    return true;
+  });
+
+  const matched = list.filter(d => {
     const hay = `${d.name} ${d.department || ''} ${d.specialty || ''} ${d.type || ''}`.toLowerCase();
     return hay.includes(query);
   });
@@ -498,17 +476,17 @@ function requireAdminClient() {
 function toggleManageControls() {
   const can = state.admin.ok && state.admin.role === 'Admin';
 
-  // Manage tab actions
+  // Manage Data buttons
   ['btnAddDoctor', 'btnAddStaff', 'btnAddDept'].forEach(id => {
     const el = $(id);
     if (el) el.disabled = !can;
   });
 
-  // Visualization export is Admin-only
+  // Export .XLSX (Admin only)
   const ex = $('btnExportXlsx');
   if (ex) {
     ex.disabled = !can;
-    ex.title = can ? 'Export ข้อมูลเป็นไฟล์ .XLSX' : 'เฉพาะ Admin เท่านั้น (กรุณาตรวจสอบ Admin StaffID)';
+    ex.title = can ? '' : 'เฉพาะ Admin เท่านั้น';
   }
 }
 
@@ -521,8 +499,7 @@ async function loadManage() {
     apiGet('listDepartments'),
   ]);
 
-  const doctorsNorm = (docRes.doctors || []).map(normalizeDoctor_).filter(d => d.name);
-  renderDoctorsTable(doctorsNorm);
+  renderDoctorsTable(docRes.doctors || []);
   renderStaffTable(staffRes.staff || []);
   renderDeptTable(deptRes.departments || []);
 
@@ -530,7 +507,7 @@ async function loadManage() {
   if (!state.ref || !state.ref.lists) {
     state.ref = await apiGet('getReferenceData');
   }
-  state.ref.doctors = doctorsNorm;
+  state.ref.doctors = docRes.doctors || [];
   state.ref.staff = staffRes.staff || [];
   state.ref.departments = (deptRes.departments || []).map(d => d.department);
   renderReferenceData_(state.ref);
@@ -1177,7 +1154,6 @@ function renderMonthChart(series) {
 // ---------------- Export XLSX ----------------
 
 async function exportXlsx() {
-  requireAdminClient();
   if (typeof XLSX === 'undefined') {
     throw new Error('ไม่พบไลบรารี XLSX (ตรวจสอบว่าเพิ่ม script xlsx.full.min.js ใน index.html แล้ว)');
   }
@@ -1205,9 +1181,10 @@ async function init() {
   // Production: prevent stale localStorage API URLs from breaking users
   if (LOCK_API_URL) { try { localStorage.removeItem(API_URL_STORAGE_KEY); } catch (_) {} }
   applyApiUiPolicy_();
+  markSystemFilled_('specialty');
+  markSystemFilled_('doctorType');
   renderApiUrl_();
 
-  toggleManageControls();
   // Modals
   modalDoctor = new bootstrap.Modal($('modalDoctor'));
   modalStaff = new bootstrap.Modal($('modalStaff'));
@@ -1227,7 +1204,7 @@ async function init() {
     try {
       const info = await apiGet('ping');
       toast(`Ping OK (${info.spreadsheetName || ''})`, 'success');
-      setApiStatus_('Success', 'success');
+      setApiStatus_('Connected', 'success');
     } catch (e) {
       toast(e.message, 'danger');
     }
@@ -1332,11 +1309,62 @@ async function init() {
     try { await loadVisualization({}); } catch (e) { toast(e.message, 'danger'); }
   });
   $('btnExportXlsx')?.addEventListener('click', async () => {
-    try { await exportXlsx(); } catch (e) { toast(e.message, 'danger'); }
-  });
-
-  // API settings modal
+  const can = state.admin.ok && state.admin.role === 'Admin';
+  if (!can) {
+    toast('Permission denied: Export .XLSX ทำได้เฉพาะ Admin เท่านั้น', 'danger');
+    return;
+  }
+  try { await exportXlsx(); } catch (e) { toast(e.message, 'danger'); }
+});
+// API settings modal
   const modalEl = document.getElementById('modalApi');
   const apiModal = modalEl ? new bootstrap.Modal(modalEl) : null;
 
-  $('btnApiSettings')?.addEventListener('c
+  $('btnApiSettings')?.addEventListener('click', () => {
+    if (!apiModal) return;
+    $('apiUrlInput').value = getApiUrl_();
+    apiModal.show();
+  });
+
+  $('btnSaveApiUrl')?.addEventListener('click', async () => {
+    if (!apiModal) return;
+    const v = setApiUrl_($('apiUrlInput').value);
+    apiModal.hide();
+    if (!v) {
+      toast('กรุณาใส่ Web App URL ให้ถูกต้อง', 'danger');
+      return;
+    }
+    toast('บันทึก Web App URL แล้ว', 'success');
+    await safeInitialLoad_();
+  });
+
+  async function safeInitialLoad_() {
+    try {
+      if (!getApiUrl_()) {
+        setApiStatus_('Not configured', 'danger');
+        if (apiModal) apiModal.show();
+        return;
+      }
+      await loadReferenceData();
+      toast('โหลด Reference สำเร็จ', 'success');
+      await loadManage();
+      await loadVisualization({});
+    } catch (e) {
+      toast(e.message || 'เชื่อมต่อ API ไม่สำเร็จ', 'danger');
+      setApiStatus_('Disconnected', 'danger');
+    }
+  }
+
+  // Initial load
+  await safeInitialLoad_();
+}
+
+function getVizParamsFromUI() {
+  return {
+    startDate: $('vizStart')?.value || '',
+    endDate: $('vizEnd')?.value || '',
+    department: $('vizDept')?.value || '',
+  };
+}
+
+document.addEventListener('DOMContentLoaded', init);
