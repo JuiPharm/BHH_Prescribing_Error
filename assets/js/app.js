@@ -10,7 +10,7 @@
  *   then refreshes data via JSONP.
  */
 
-const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbzo3N4o8mk9GNTyylyok8sMDpC66s1LQUMIiMsDapK4oBhZqWaFwteerDdct6cb50JN/exec';
+const DEFAULT_API_URL = https://script.google.com/macros/s/AKfycbyIy7tJrZEAeesfARaBVgPaPCt4WXqcLRCIPOJ2_zPWxWCxWZO0pjYrJeCF6m-DEdjF/exec';
 const LOCK_API_URL = true; // Production: user does not need to set Web App URL
 const API_URL_STORAGE_KEY = 'pe_api_url';
 
