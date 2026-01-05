@@ -145,6 +145,52 @@ function escapeHtml(str) {
   }[s]));
 }
 
+function renderTwoSeriesBars_(containerId, rows, aKey, bKey, aLabel, bLabel) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+
+  const safeRows = Array.isArray(rows) ? rows : [];
+  el.innerHTML = `
+    <div class="legend">
+      <span><span class="dot" style="background:var(--app-primary);opacity:.85"></span>${escapeHtml(aLabel)}</span>
+      <span><span class="dot" style="background:var(--app-accent);opacity:.75"></span>${escapeHtml(bLabel)}</span>
+    </div>
+  `;
+
+  let hasAny = false;
+
+  safeRows.forEach(r => {
+    const a = Number(r?.[aKey]) || 0;
+    const b = Number(r?.[bKey]) || 0;
+    const t = a + b;
+    if (t > 0) hasAny = true;
+
+    const pctA = t ? (a / t) * 100 : 0;
+    const pctB = t ? (b / t) * 100 : 0;
+
+    const row = document.createElement('div');
+    row.className = 'row-item';
+    row.innerHTML = `
+      <div class="label">${escapeHtml(r?.source || '-')}</div>
+      <div class="bar" title="Total ${t}">
+        <div class="seg-a" style="width:${pctA}%"></div>
+        <div class="seg-b" style="width:${pctB}%"></div>
+      </div>
+      <div class="value">${t}</div>
+    `;
+    el.appendChild(row);
+  });
+
+  if (!hasAny) {
+    const empty = document.createElement('div');
+    empty.className = 'text-muted small';
+    empty.textContent = 'ไม่พบข้อมูลตามเงื่อนไขที่เลือก';
+    el.appendChild(empty);
+  }
+}
+
+
+
 // Normalize strings for safe comparisons (e.g., Department matching between sheets)
 function normalizeKey_(value) {
   return String(value || '').trim().toLowerCase();
@@ -749,6 +795,12 @@ async function loadVisualization(params = {}) {
   renderDoctorChart(data.charts?.byDoctor || []);
   renderSeverityChart(data.charts?.bySeverity || []);
   renderMonthChart(data.charts?.byMonth || []);
+
+  // New: by source (OPD/IPD/IV Chemo)
+  renderTwoSeriesBars_('chartConsultBySource', data.charts?.consultBySource || [], 'adjust', 'confirm',
+    'แพทย์ปรับแผนการรักษา', 'แพทย์ยืนยันแนวทางการรักษาเดิม');
+  renderTwoSeriesBars_('chartErrorTypeBySource', data.charts?.errorTypeBySource || [], 'inappropriate', 'incomplete',
+    'คำสั่งการรักษาไม่เหมาะสม', 'คำสั่งการรักษาไม่สมบูรณ์');
 }
 
 
