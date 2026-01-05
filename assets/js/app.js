@@ -347,7 +347,7 @@ function reportClientValidate(payload) {
     ['errorDetails', 'รายละเอียด'],
     ['consult', 'Consult'],
     ['errorType', 'ประเภท'],
-    ['medicationReconciliation', 'Medication reconciliation / Home Med'],
+    ['medicationReconciliation', 'Process ที่ตรวจพบ Prescribing Error'],
     ['reporter', 'ผู้รายงาน'],
     ['drug1', 'ยา (ตัวที่ 1)'],
     ['drugGroup', 'กลุ่มของยา'],
