@@ -59,7 +59,6 @@ function getApiUrlOrThrow_() {
 
 function renderApiUrl_() {
   // Do not display Web App URL to end users.
-  // Show a friendly status instead.
   const v = getApiUrl_();
   if (v) setApiStatus_('Success', 'success');
   else setApiStatus_('Not configured', 'danger');
@@ -125,6 +124,15 @@ function applyApiUiPolicy_() {
   if (help) help.style.display = 'none';
   const urlText = document.getElementById('apiUrlText');
   if (urlText) urlText.style.display = 'none';
+}
+
+
+function markSystemFilled_(id) {
+  const el = $(id);
+  if (!el) return;
+  el.classList.add('app-system-filled');
+  try { el.readOnly = true; } catch (_) {}
+  el.setAttribute('aria-readonly', 'true');
 }
 
 function escapeHtml(str) {
@@ -245,7 +253,12 @@ function renderReferenceData_(ref) {
   renderOptions($('prescribingErrorFrom'), state.ref.lists?.prescribingErrorFrom || [], { placeholder: 'เลือก…' });
   renderOptions($('consult'), state.ref.lists?.consultResults || [], { placeholder: 'เลือก…' });
   renderOptions($('errorType'), state.ref.lists?.errorTypes || [], { placeholder: 'เลือก…' });
-  renderOptions($('medicationReconciliation'), state.ref.lists?.medicationReconciliation || [], { placeholder: 'เลือก…' });
+  // Process ที่ตรวจพบ Prescribing Error (Medication reconciliation / Home Med)
+const mrList = Array.isArray(state.ref.lists?.medicationReconciliation)
+  ? [...state.ref.lists.medicationReconciliation]
+  : [];
+if (!mrList.some(x => normalizeKey_(x) === 'none of above')) mrList.push('None of Above');
+renderOptions($('medicationReconciliation'), mrList, { placeholder: 'เลือก…' });
   renderOptions($('drugGroup'), state.ref.lists?.drugGroups || [], { placeholder: 'เลือก…' });
   renderOptions($('severityLevel'), state.ref.lists?.severityLevels || [], { placeholder: 'เลือก…' });
 
@@ -282,7 +295,7 @@ async function loadReferenceData() {
   const ref = await apiGet('getReferenceData');
   renderReferenceData_(ref);
   setText('lastSync', fmtDateTime(new Date()));
-  setApiStatus_('Success', 'success');
+  setApiStatus_('Connected', 'success');
 }
 
 // ---------------- Report form ----------------
@@ -347,7 +360,7 @@ function reportClientValidate(payload) {
     ['errorDetails', 'รายละเอียด'],
     ['consult', 'Consult'],
     ['errorType', 'ประเภท'],
-    ['medicationReconciliation', 'Medication reconciliation / Home Med'],
+    ['medicationReconciliation', 'Process ที่ตรวจพบ Prescribing Error'],
     ['reporter', 'ผู้รายงาน'],
     ['drug1', 'ยา (ตัวที่ 1)'],
     ['drugGroup', 'กลุ่มของยา'],
@@ -463,17 +476,17 @@ function requireAdminClient() {
 function toggleManageControls() {
   const can = state.admin.ok && state.admin.role === 'Admin';
 
-  // Manage tab actions
+  // Manage Data buttons
   ['btnAddDoctor', 'btnAddStaff', 'btnAddDept'].forEach(id => {
     const el = $(id);
     if (el) el.disabled = !can;
   });
 
-  // Visualization export is Admin-only
+  // Export .XLSX (Admin only)
   const ex = $('btnExportXlsx');
   if (ex) {
     ex.disabled = !can;
-    ex.title = can ? 'Export ข้อมูลเป็นไฟล์ .XLSX' : 'เฉพาะ Admin เท่านั้น (กรุณาตรวจสอบ Admin StaffID)';
+    ex.title = can ? '' : 'เฉพาะ Admin เท่านั้น';
   }
 }
 
@@ -1141,7 +1154,6 @@ function renderMonthChart(series) {
 // ---------------- Export XLSX ----------------
 
 async function exportXlsx() {
-  requireAdminClient();
   if (typeof XLSX === 'undefined') {
     throw new Error('ไม่พบไลบรารี XLSX (ตรวจสอบว่าเพิ่ม script xlsx.full.min.js ใน index.html แล้ว)');
   }
@@ -1169,9 +1181,10 @@ async function init() {
   // Production: prevent stale localStorage API URLs from breaking users
   if (LOCK_API_URL) { try { localStorage.removeItem(API_URL_STORAGE_KEY); } catch (_) {} }
   applyApiUiPolicy_();
+  markSystemFilled_('specialty');
+  markSystemFilled_('doctorType');
   renderApiUrl_();
 
-  toggleManageControls();
   // Modals
   modalDoctor = new bootstrap.Modal($('modalDoctor'));
   modalStaff = new bootstrap.Modal($('modalStaff'));
@@ -1191,7 +1204,7 @@ async function init() {
     try {
       const info = await apiGet('ping');
       toast(`Ping OK (${info.spreadsheetName || ''})`, 'success');
-      setApiStatus_('Success', 'success');
+      setApiStatus_('Connected', 'success');
     } catch (e) {
       toast(e.message, 'danger');
     }
@@ -1296,10 +1309,14 @@ async function init() {
     try { await loadVisualization({}); } catch (e) { toast(e.message, 'danger'); }
   });
   $('btnExportXlsx')?.addEventListener('click', async () => {
-    try { await exportXlsx(); } catch (e) { toast(e.message, 'danger'); }
-  });
-
-  // API settings modal
+  const can = state.admin.ok && state.admin.role === 'Admin';
+  if (!can) {
+    toast('Permission denied: Export .XLSX ทำได้เฉพาะ Admin เท่านั้น', 'danger');
+    return;
+  }
+  try { await exportXlsx(); } catch (e) { toast(e.message, 'danger'); }
+});
+// API settings modal
   const modalEl = document.getElementById('modalApi');
   const apiModal = modalEl ? new bootstrap.Modal(modalEl) : null;
 
