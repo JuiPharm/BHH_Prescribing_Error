@@ -11,6 +11,16 @@
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <link href="./assets/css/styles.css" rel="stylesheet" />
+<style>
+  /* Auto-filled fields (read-only) */
+  .app-autofill[readonly]{
+    background-color:#f1f3f5 !important;
+    color:#6c757d !important;
+    border-color:#dee2e6 !important;
+    cursor:not-allowed;
+  }
+  .app-autofill[readonly]::placeholder{ color:#adb5bd !important; }
+</style>
 </head>
 
 <body class="app-bg">
@@ -114,12 +124,12 @@
 
                     <div class="col-12 col-md-6">
                       <label class="form-label">Specialty</label>
-                      <input id="specialty" class="form-control app-system-filled" readonly />
+                      <input id="specialty" class="form-control app-autofill" readonly />
                     </div>
 
                     <div class="col-12 col-md-6">
                       <label class="form-label">ระบุแพทย์ Full-Time / Part-Time</label>
-                      <input id="doctorType" class="form-control app-system-filled" readonly />
+                      <input id="doctorType" class="form-control app-autofill" readonly />
                     </div>
 
                     <div class="col-12">
@@ -138,7 +148,7 @@
                     </div>
 
                     <div class="col-12 col-md-6">
-                      <label class="form-label">Process ที่ตรวจพบ Prescribing Error <span class="text-danger">*</span></label>
+                      <label class="form-label">Medication reconciliation / Home Med <span class="text-danger">*</span></label>
                       <select id="medicationReconciliation" class="form-select" required></select>
                     </div>
 
@@ -344,7 +354,7 @@
                     <button id="btnVizRefresh" class="btn btn-sm btn-outline-secondary">
                       <i class="fa-solid fa-rotate"></i> รีเฟรช
                     </button>
-                    <button id="btnExportXlsx" class="btn btn-sm btn-outline-primary" disabled title="เฉพาะ Admin เท่านั้น">
+                    <button id="btnExportXlsx" class="btn btn-sm btn-outline-primary" disabled>
                       <i class="fa-solid fa-file-export"></i> Export .XLSX
                     </button>
                   </div>
