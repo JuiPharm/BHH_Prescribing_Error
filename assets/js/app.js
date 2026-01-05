@@ -145,6 +145,11 @@ function escapeHtml(str) {
   }[s]));
 }
 
+// Normalize strings for safe comparisons (e.g., Department matching between sheets)
+function normalizeKey_(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
 async function apiGet(action, params = {}) {
   // JSONP to bypass CORS.
   const baseUrl = getApiUrlOrThrow_();
@@ -414,15 +419,19 @@ function doctorQuery(q) {
   const ref = state.ref;
   if (!ref?.doctors) return [];
 
-  const query = (q || '').trim().toLowerCase();
+  const query = normalizeKey_(q);
   if (!query) return [];
 
-  const deptFilter = $('department')?.value.trim() || '';
-  const list = ref.doctors.filter(d => {
-    if (!d?.name) return false;
-    if (deptFilter && String(d.department || '').trim() !== deptFilter) return false;
-    return true;
-  });
+  const deptFilter = normalizeKey_($('department')?.value || '');
+
+  // Always keep doctors searchable even if Department naming between
+  // Sheet Department and Sheet Doctor does not match 100%.
+  const all = ref.doctors.filter(d => d && d.name);
+  let list = all;
+  if (deptFilter) {
+    const inDept = all.filter(d => normalizeKey_(d.department) === deptFilter);
+    list = inDept.length ? inDept : all; // fallback when mismatch
+  }
 
   const matched = list.filter(d => {
     const hay = `${d.name} ${d.department || ''} ${d.specialty || ''} ${d.type || ''}`.toLowerCase();
