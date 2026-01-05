@@ -12,8 +12,6 @@
 
 const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbyIy7tJrZEAeesfARaBVgPaPCt4WXqcLRCIPOJ2_zPWxWCxWZO0pjYrJeCF6m-DEdjF/exec';
 const LOCK_API_URL = true; // Production: user does not need to set Web App URL
-const AUTO_PING_MS = 60 * 1000;     // 1 minute
-const AUTO_REF_MS  = 5 * 60 * 1000; // 5 minutes
 const API_URL_STORAGE_KEY = 'pe_api_url';
 
 function normalizeApiUrl_(value) {
@@ -62,9 +60,9 @@ function getApiUrlOrThrow_() {
 
 function renderApiUrl_() {
   // Do not display Web App URL to end users.
-  // Show a friendly status instead. Actual connectivity will be confirmed via auto ping.
+  // Show a friendly status instead.
   const v = getApiUrl_();
-  if (v) setApiStatus_('Connecting…', 'secondary');
+  if (v) setApiStatus_('Success', 'success');
   else setApiStatus_('Not configured', 'danger');
 }
 
@@ -157,33 +155,6 @@ function applyAdminVisibility_() {
 
   // Keep Manage action buttons disabled appropriately
   toggleManageControls();
-}
-let __autoPingTimer = null;
-let __autoRefTimer = null;
-
-function startAutoConnect_() {
-  // Avoid multiple timers
-  if (__autoPingTimer) clearInterval(__autoPingTimer);
-  if (__autoRefTimer) clearInterval(__autoRefTimer);
-
-  // 1) Auto-ping to keep status accurate
-  __autoPingTimer = setInterval(async () => {
-    try {
-      await apiGet('ping', {});
-      setApiStatus_('Success', 'success');
-    } catch (_) {
-      setApiStatus_('Disconnected', 'danger');
-    }
-  }, AUTO_PING_MS);
-
-  // 2) Auto-refresh reference data (departments/doctors/staff) in background
-  __autoRefTimer = setInterval(async () => {
-    try {
-      await loadReferenceData();
-    } catch (_) {
-      setApiStatus_('Disconnected', 'danger');
-    }
-  }, AUTO_REF_MS);
 }
 
 function escapeHtml(str) {
@@ -482,20 +453,18 @@ function doctorQuery(q) {
 
 async function validateAdmin() {
   const staffId = $('adminStaffId')?.value.trim() || '';
-
-  // Not verified yet
   if (!staffId) {
     state.admin = { staffId: '', role: 'Not verified', ok: false, name: '' };
     if ($('adminBadge')) $('adminBadge').className = 'badge rounded-pill text-bg-secondary';
     setText('adminBadge', 'Not verified');
     toggleManageControls();
     applyAdminVisibility_();
+    applyAdminVisibility_();
     return;
   }
 
   try {
     const data = await apiGet('validateStaff', { staffId });
-
     state.admin = { staffId, role: data.role, ok: data.ok, name: data.name || '' };
 
     if (data.ok && data.role === 'Admin') {
@@ -512,27 +481,10 @@ async function validateAdmin() {
       toast('ไม่พบ StaffID', 'danger');
     }
 
-    // Update UI visibility (Manage tab + Export) based on role
     toggleManageControls();
-    applyAdminVisibility_();
-
-    // If Admin is currently on Manage tab, load data immediately
-    if (data.ok && data.role === 'Admin') {
-      const navBtn = document.querySelector('[data-bs-target="#tab-manage"]');
-      if (navBtn && navBtn.classList.contains('active')) {
-        try { await loadManage(); } catch (_) {}
-      }
-    }
   } catch (e) {
-    // Keep UI locked down on error
-    state.admin = { staffId, role: 'Error', ok: false, name: '' };
-    if ($('adminBadge')) $('adminBadge').className = 'badge rounded-pill text-bg-danger';
-    setText('adminBadge', 'Error');
     toast(e.message, 'danger');
-    toggleManageControls();
-    applyAdminVisibility_();
   }
-}
 }
 
 function requireAdminClient() {
@@ -1395,34 +1347,27 @@ async function init() {
     }
     toast('บันทึก Web App URL แล้ว', 'success');
     await safeInitialLoad_();
-  startAutoConnect_();
   });
 
   async function safeInitialLoad_() {
-  try {
-    if (!getApiUrl_()) {
-      setApiStatus_('Not configured', 'danger');
-      if (apiModal) apiModal.show();
-      return;
+    try {
+      if (!getApiUrl_()) {
+        setApiStatus_('Not configured', 'danger');
+        if (apiModal) apiModal.show();
+        return;
+      }
+      await loadReferenceData();
+      toast('โหลด Reference สำเร็จ', 'success');
+      await loadManage();
+      await loadVisualization({});
+    } catch (e) {
+      toast(e.message || 'เชื่อมต่อ API ไม่สำเร็จ', 'danger');
+      setApiStatus_('Disconnected', 'danger');
     }
-
-    setApiStatus_('Connecting…', 'secondary');
-
-    // Lightweight connectivity check
-    await apiGet('ping', {});
-    setApiStatus_('Success', 'success');
-
-    // Load reference data (dropdowns/autofill)
-    await loadReferenceData();
-
-    // Load visualization for all users
-    await loadVisualization(getVizParamsFromUI());
-
-    // Do not auto-load Manage (Admin only). It will load when Admin opens the tab.
-  } catch (e) {
-    toast(e.message || 'เชื่อมต่อ API ไม่สำเร็จ', 'danger');
-    setApiStatus_('Disconnected', 'danger');
   }
+
+  // Initial load
+  await safeInitialLoad_();
 }
 
 function getVizParamsFromUI() {
