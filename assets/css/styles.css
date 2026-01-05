@@ -10,3 +10,14 @@
   box-shadow: none !important;
   border-color: rgba(15,23,42,.10) !important;
 }
+
+/* Mini stacked bars (two-series) used in Visualization */
+.mini-bars .legend{display:flex;gap:16px;margin-bottom:10px;color:var(--app-muted);font-size:12px;flex-wrap:wrap}
+.mini-bars .dot{width:10px;height:10px;border-radius:999px;display:inline-block;margin-right:6px}
+.mini-bars .row-item{display:grid;grid-template-columns:180px 1fr 90px;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid rgba(15,23,42,.08)}
+@media (max-width: 576px){.mini-bars .row-item{grid-template-columns:1fr}}
+.mini-bars .label{color:var(--app-muted);font-weight:600}
+.mini-bars .bar{height:12px;background:rgba(15,23,42,.06);border-radius:999px;overflow:hidden;display:flex}
+.mini-bars .seg-a{background:var(--app-primary);opacity:.85}
+.mini-bars .seg-b{background:var(--app-accent);opacity:.75}
+.mini-bars .value{text-align:right;color:var(--app-muted);font-variant-numeric:tabular-nums}
