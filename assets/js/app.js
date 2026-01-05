@@ -462,10 +462,19 @@ function requireAdminClient() {
 
 function toggleManageControls() {
   const can = state.admin.ok && state.admin.role === 'Admin';
+
+  // Manage tab actions
   ['btnAddDoctor', 'btnAddStaff', 'btnAddDept'].forEach(id => {
     const el = $(id);
     if (el) el.disabled = !can;
   });
+
+  // Visualization export is Admin-only
+  const ex = $('btnExportXlsx');
+  if (ex) {
+    ex.disabled = !can;
+    ex.title = can ? 'Export ข้อมูลเป็นไฟล์ .XLSX' : 'เฉพาะ Admin เท่านั้น (กรุณาตรวจสอบ Admin StaffID)';
+  }
 }
 
 // ---------------- Manage Data ----------------
@@ -1132,6 +1141,7 @@ function renderMonthChart(series) {
 // ---------------- Export XLSX ----------------
 
 async function exportXlsx() {
+  requireAdminClient();
   if (typeof XLSX === 'undefined') {
     throw new Error('ไม่พบไลบรารี XLSX (ตรวจสอบว่าเพิ่ม script xlsx.full.min.js ใน index.html แล้ว)');
   }
@@ -1161,6 +1171,7 @@ async function init() {
   applyApiUiPolicy_();
   renderApiUrl_();
 
+  toggleManageControls();
   // Modals
   modalDoctor = new bootstrap.Modal($('modalDoctor'));
   modalStaff = new bootstrap.Modal($('modalStaff'));
