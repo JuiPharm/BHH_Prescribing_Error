@@ -26,3 +26,9 @@ Important: Frontend sends POST with `Content-Type: text/plain;charset=utf-8` to 
 ## Admin permissions
 - Manage Data tab requires **Admin StaffID** validation.
 - Role is read from Sheet `Staff`.
+
+
+## Medication (Optional)
+- Add Sheet: `Medication`
+- Columns: `GenericName`, `BrandName`, `Form`, `DisplayName`, `DrugGroup`
+- Drug 1 / Drug 2 จะค้นหาได้ทั้งชื่อสามัญและชื่อการค้า และระบบจะเติม `กลุ่มยา` อัตโนมัติจาก Drug 1 และล็อกแก้ไขไม่ได้
