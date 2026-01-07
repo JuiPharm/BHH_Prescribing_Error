@@ -21,3 +21,5 @@
 .mini-bars .seg-a{background:var(--app-primary);opacity:.85}
 .mini-bars .seg-b{background:var(--app-accent);opacity:.75}
 .mini-bars .value{text-align:right;color:var(--app-muted);font-variant-numeric:tabular-nums}
+
+.app-system-filled:disabled{opacity:1!important;cursor:not-allowed;}
