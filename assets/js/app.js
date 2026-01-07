@@ -67,6 +67,8 @@ function renderApiUrl_() {
 const state = {
   ref: null,
   selectedDoctor: null,
+  selectedDrug1: null,
+  selectedDrug2: null,
   admin: { staffId: '', role: 'Not verified', ok: false, name: '' },
   charts: { dept: null, specialty: null, drugGroup: null, doctor: null, severity: null, month: null },
 };
@@ -131,8 +133,14 @@ function markSystemFilled_(id) {
   const el = $(id);
   if (!el) return;
   el.classList.add('app-system-filled');
-  try { el.readOnly = true; } catch (_) {}
-  el.setAttribute('aria-readonly', 'true');
+  const tag = String(el.tagName || '').toUpperCase();
+  if (tag === 'SELECT') {
+    el.disabled = true;
+    el.setAttribute('aria-disabled', 'true');
+  } else {
+    try { el.readOnly = true; } catch (_) {}
+    el.setAttribute('aria-readonly', 'true');
+  }
 }
 
 function escapeHtml(str) {
@@ -311,6 +319,7 @@ const mrList = Array.isArray(state.ref.lists?.medicationReconciliation)
 if (!mrList.some(x => normalizeKey_(x) === 'none of above')) mrList.push('None of Above');
 renderOptions($('medicationReconciliation'), mrList, { placeholder: 'เลือก…' });
   renderOptions($('drugGroup'), state.ref.lists?.drugGroups || [], { placeholder: 'เลือก…' });
+  markSystemFilled_('drugGroup');
   renderOptions($('severityLevel'), state.ref.lists?.severityLevels || [], { placeholder: 'เลือก…' });
 
   // Department
@@ -371,6 +380,12 @@ function resetReportForm() {
   if (suggest) suggest.style.display = 'none';
 
   state.selectedDoctor = null;
+  state.selectedDrug1 = null;
+  state.selectedDrug2 = null;
+  const d1 = $('drug1Suggest'); if (d1) d1.style.display = 'none';
+  const d2 = $('drug2Suggest'); if (d2) d2.style.display = 'none';
+  // drugGroup is auto-populated from Drug 1 and locked
+  const dg = $('drugGroup'); if (dg) dg.value = '';
 
   // Focus first field for faster data entry
   $('prescribingErrorFrom')?.focus();
@@ -485,6 +500,139 @@ function doctorQuery(q) {
   });
 
   return matched.slice(0, 12);
+}
+
+// ---------------- Medication typeahead (Drug 1 / Drug 2) ----------------
+// Search from Sheet: Medication (GenericName, BrandName, Form, DisplayName, DrugGroup)
+// Requirements:
+// - User can search by generic or brand
+// - Display using DisplayName
+// - DrugGroup auto-filled from Drug 1 and locked (system-filled)
+
+function normalizeSearch_(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function ensureSelectOption_(selectEl, value) {
+  if (!selectEl) return;
+  const v = String(value || '').trim();
+  if (!v) return;
+  const exists = Array.from(selectEl.options || []).some(o => String(o.value || '').trim() === v);
+  if (exists) return;
+  const opt = document.createElement('option');
+  opt.value = v;
+  opt.textContent = v;
+  selectEl.appendChild(opt);
+}
+
+function setDrugGroupFromDrug1_(item) {
+  const dgEl = $('drugGroup');
+  if (!dgEl) return;
+  const group = String(item?.drugGroup || '').trim();
+  if (!group) {
+    dgEl.value = '';
+    return;
+  }
+  ensureSelectOption_(dgEl, group);
+  dgEl.value = group;
+}
+
+function showMedicationSuggest_(boxEl, items, onSelect) {
+  if (!boxEl) return;
+  boxEl.innerHTML = '';
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) {
+    boxEl.style.display = 'none';
+    return;
+  }
+  list.forEach(m => {
+    const display = String(m.displayName || '').trim();
+    if (!display) return;
+
+    const sub = [
+      m.genericName ? `Generic: ${m.genericName}` : '',
+      m.brandName ? `Brand: ${m.brandName}` : '',
+      m.form ? `Form: ${m.form}` : '',
+      m.drugGroup ? `Group: ${m.drugGroup}` : '',
+    ].filter(Boolean).join(' • ');
+
+    const item = document.createElement('div');
+    item.className = 'item';
+    item.innerHTML = `
+      <div>${escapeHtml(display)}</div>
+      <div class="sub">${escapeHtml(sub || '')}</div>
+    `;
+    item.addEventListener('click', () => onSelect(m));
+    boxEl.appendChild(item);
+  });
+  boxEl.style.display = 'block';
+}
+
+async function searchMedication_(q) {
+  const query = String(q || '').trim();
+  if (query.length < 2) return [];
+  const res = await apiGet('searchMedication', { q: query, limit: 12 });
+  const items = Array.isArray(res?.items) ? res.items : (Array.isArray(res) ? res : []);
+  return items;
+}
+
+function wireMedicationTypeahead_(inputId, suggestId, { primary = false } = {}) {
+  const input = $(inputId);
+  const box = $(suggestId);
+  if (!input || !box) return;
+
+  let timer = null;
+  let reqSeq = 0;
+
+  input.addEventListener('input', (ev) => {
+    const q = ev.target.value || '';
+
+    if (primary) {
+      // If user edits after selection, clear selection and drug group
+      if (state.selectedDrug1 && normalizeSearch_(q) !== normalizeSearch_(state.selectedDrug1.displayName)) {
+        state.selectedDrug1 = null;
+        setDrugGroupFromDrug1_(null);
+      }
+      // Don't re-query when matches selection exactly
+      if (state.selectedDrug1 && normalizeSearch_(q) === normalizeSearch_(state.selectedDrug1.displayName)) {
+        box.style.display = 'none';
+        return;
+      }
+    } else {
+      if (state.selectedDrug2 && normalizeSearch_(q) !== normalizeSearch_(state.selectedDrug2.displayName)) {
+        state.selectedDrug2 = null;
+      }
+      if (state.selectedDrug2 && normalizeSearch_(q) === normalizeSearch_(state.selectedDrug2.displayName)) {
+        box.style.display = 'none';
+        return;
+      }
+    }
+
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const seq = ++reqSeq;
+      try {
+        const items = await searchMedication_(q);
+        if (seq !== reqSeq) return; // ignore stale
+        showMedicationSuggest_(box, items, (item) => {
+          const display = String(item?.displayName || '').trim();
+          if (!display) return;
+
+          input.value = display;
+          if (primary) {
+            state.selectedDrug1 = item;
+            setDrugGroupFromDrug1_(item);
+          } else {
+            state.selectedDrug2 = item;
+          }
+          box.style.display = 'none';
+        });
+      } catch (_) {
+        // silently hide suggestions; user can still type manually if needed
+        box.style.display = 'none';
+      }
+    }, 220);
+  });
 }
 
 // ---------------- Admin verification ----------------
@@ -1244,6 +1392,7 @@ async function init() {
   applyApiUiPolicy_();
   markSystemFilled_('specialty');
   markSystemFilled_('doctorType');
+  markSystemFilled_('drugGroup');
   renderApiUrl_();
 
   // Modals
@@ -1295,11 +1444,24 @@ async function init() {
     }, 120);
   });
 
+  // Medication typeahead (Drug 1 / Drug 2)
+  wireMedicationTypeahead_('drug1', 'drug1Suggest', { primary: true });
+  wireMedicationTypeahead_('drug2', 'drug2Suggest', { primary: false });
+  // Drug group is auto-populated and locked
+  setDrugGroupFromDrug1_(state.selectedDrug1);
+
+
   document.addEventListener('click', (ev) => {
-    const box = $('doctorSuggest');
-    const search = $('doctorSearch');
-    if (!box || !search) return;
-    if (!box.contains(ev.target) && ev.target !== search) box.style.display = 'none';
+    // Close suggest popovers when clicking outside
+    const pairs = [
+      { box: $('doctorSuggest'), input: $('doctorSearch') },
+      { box: $('drug1Suggest'), input: $('drug1') },
+      { box: $('drug2Suggest'), input: $('drug2') },
+    ];
+    pairs.forEach(({ box, input }) => {
+      if (!box || !input) return;
+      if (!box.contains(ev.target) && ev.target !== input) box.style.display = 'none';
+    });
   });
 
   $('reportForm')?.addEventListener('submit', async (ev) => {
