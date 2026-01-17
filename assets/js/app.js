@@ -548,7 +548,186 @@ function doctorQuery(q) {
 // - DrugGroup auto-filled from Drug 1 and locked (system-filled)
 
 function normalizeSearch_(value) {
-  return String(value || '').trim().toLowerCase();
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+// Medication search UX/performance tuning
+const MED_SEARCH_CFG_ = {
+  // Local (prefetched) search can start earlier without server cost.
+  minCharsLocal: 2,
+  // Remote (fallback) search: protect Apps Script from heavy scanning on very short queries.
+  minCharsRemote: 3,
+  // With local search, we can respond faster.
+  debounceMs: 220,
+  // More results improves usability (still small enough to render quickly).
+  limit: 12,
+  // Cache size for remote query results.
+  cacheMax: 180,
+
+  // Prefetch medication index once per session (triggered on focus).
+  prefetchOnFocus: true,
+  // Optional: cap rows returned from server (0 = all).
+  prefetchMax: 0,
+};
+
+// Simple LRU-ish cache (insertion order) for medication queries.
+// Cache helps reduce round-trips to Apps Script (network + cold-start cost).
+const medSearchCache_ = new Map();
+let lastMedQuery_ = '';
+let lastMedItems_ = [];
+
+// Prefetched medication index for client-side search (dramatically reduces API calls).
+let medIndex_ = null;
+let medIndexBuster_ = '0';
+let medIndexPromise_ = null;
+
+async function prefetchMedicationIndex_({ silent = true } = {}) {
+  if (Array.isArray(medIndex_) && medIndex_.length) return medIndex_;
+  if (medIndexPromise_) return medIndexPromise_;
+
+  medIndexPromise_ = (async () => {
+    try {
+      const params = {};
+      if (MED_SEARCH_CFG_.prefetchMax && Number(MED_SEARCH_CFG_.prefetchMax) > 0) params.max = String(MED_SEARCH_CFG_.prefetchMax);
+
+      const res = await apiGet('getMedicationIndex', params);
+      const items = Array.isArray(res?.items) ? res.items : [];
+      medIndexBuster_ = String(res?.buster || '0').trim() || '0';
+
+      // Normalize once to avoid per-keystroke overhead.
+      medIndex_ = items
+        .filter(Boolean)
+        .map(it => ({
+          displayName: String(it.displayName || '').trim(),
+          displayKey: String(it.displayKey || '').trim() || normalizeSearch_(it.displayName),
+          drugGroup: String(it.drugGroup || '').trim(),
+          subclass: String(it.subclass || '').trim(),
+          genericName: String(it.genericName || '').trim(),
+          genericKey: String(it.genericKey || '').trim() || normalizeSearch_(it.genericName),
+          brandName: String(it.brandName || '').trim(),
+          brandKey: String(it.brandKey || '').trim() || normalizeSearch_(it.brandName),
+          form: String(it.form || '').trim(),
+          search: String(it.search || '').trim() || normalizeSearch_(`${it.displayName || ''} ${it.genericName || ''} ${it.brandName || ''} ${it.form || ''}`),
+        }))
+        .filter(x => x && x.displayName);
+
+      return medIndex_;
+    } catch (e) {
+      medIndex_ = null;
+      if (!silent) toast('โหลดรายการยาไม่สำเร็จ (จะใช้การค้นหาแบบออนไลน์แทน)', 'warning');
+      return null;
+    } finally {
+      // Allow retry if it failed
+      if (!Array.isArray(medIndex_) || !medIndex_.length) medIndexPromise_ = null;
+    }
+  })();
+
+  return medIndexPromise_;
+}
+
+function scoreMedication_(it, qKey) {
+  const dk = it.displayKey || normalizeSearch_(it.displayName);
+  const gk = it.genericKey || normalizeSearch_(it.genericName);
+  const bk = it.brandKey || normalizeSearch_(it.brandName);
+
+  if (dk && dk === qKey) return 1000;
+  if (gk && gk === qKey) return 980;
+  if (bk && bk === qKey) return 960;
+
+  if (dk && dk.indexOf(qKey) === 0) return 900;
+  if (gk && gk.indexOf(qKey) === 0) return 860;
+  if (bk && bk.indexOf(qKey) === 0) return 840;
+
+  if (dk && dk.indexOf(qKey) !== -1) return 720;
+  if (gk && gk.indexOf(qKey) !== -1) return 680;
+  if (bk && bk.indexOf(qKey) !== -1) return 660;
+
+  if (it.search && it.search.indexOf(qKey) !== -1) return 520;
+  return 0;
+}
+
+function searchMedicationLocal_(q) {
+  const query = String(q || '').trim();
+  const key = normalizeSearch_(query);
+  if (key.length < MED_SEARCH_CFG_.minCharsLocal) return [];
+  if (!Array.isArray(medIndex_) || !medIndex_.length) return null;
+
+  const limit = MED_SEARCH_CFG_.limit;
+  const top = [];
+
+  for (let i = 0; i < medIndex_.length; i++) {
+    const it = medIndex_[i];
+    if (!it || !it.search || it.search.indexOf(key) === -1) continue;
+    const score = scoreMedication_(it, key);
+    if (!score) continue;
+
+    if (top.length < limit) {
+      top.push({ score, it });
+      continue;
+    }
+
+    // Replace the worst item if this is better
+    let worst = 0;
+    for (let j = 1; j < top.length; j++) {
+      if (top[j].score < top[worst].score) worst = j;
+    }
+    if (score > top[worst].score) top[worst] = { score, it };
+  }
+
+  top.sort((a, b) => b.score - a.score);
+  return top.map(x => ({
+    displayName: x.it.displayName,
+    drugGroup: x.it.drugGroup,
+    subclass: x.it.subclass,
+    genericName: x.it.genericName,
+    brandName: x.it.brandName,
+    form: x.it.form,
+  }));
+}
+
+function escapeRegExp_(s) {
+  return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function highlightMatchHtml_(text, q) {
+  const raw = String(text || '');
+  const query = String(q || '').trim();
+  if (!raw || !query) return escapeHtml(raw);
+
+  // Highlight on the raw text (case-insensitive). This is purely UI.
+  const re = new RegExp(escapeRegExp_(query), 'ig');
+  let out = '';
+  let last = 0;
+  let m;
+  while ((m = re.exec(raw)) !== null) {
+    const start = m.index;
+    const end = start + m[0].length;
+    out += escapeHtml(raw.slice(last, start));
+    out += `<mark>${escapeHtml(raw.slice(start, end))}</mark>`;
+    last = end;
+    if (re.lastIndex === m.index) re.lastIndex++; // avoid zero-width loop
+  }
+  out += escapeHtml(raw.slice(last));
+  return out;
+}
+
+function getMedCache_(key) {
+  if (!key) return null;
+  if (!medSearchCache_.has(key)) return null;
+  const v = medSearchCache_.get(key);
+  // Refresh insertion order
+  medSearchCache_.delete(key);
+  medSearchCache_.set(key, v);
+  return v;
+}
+
+function putMedCache_(key, items) {
+  if (!key) return;
+  medSearchCache_.set(key, items);
+  while (medSearchCache_.size > MED_SEARCH_CFG_.cacheMax) {
+    const oldest = medSearchCache_.keys().next().value;
+    medSearchCache_.delete(oldest);
+  }
 }
 
 function ensureSelectOption_(selectEl, value) {
@@ -584,44 +763,124 @@ function setDrugGroupFromDrug1_(item) {
   setSubclassFromDrug1_(item);
 }
 
-function showMedicationSuggest_(boxEl, items, onSelect) {
+function hideMedicationSuggest_(boxEl) {
+  if (!boxEl) return;
+  boxEl.style.display = 'none';
+  boxEl.__pe_items = [];
+  boxEl.__pe_activeIndex = -1;
+  boxEl.__pe_onSelect = null;
+}
+
+function setMedicationActive_(boxEl, index) {
+  if (!boxEl) return;
+  const nodes = Array.from(boxEl.querySelectorAll('.item'));
+  const max = nodes.length - 1;
+  const idx = Math.max(-1, Math.min(Number(index) || 0, max));
+  nodes.forEach((n, i) => n.classList.toggle('active', i === idx));
+  boxEl.__pe_activeIndex = idx;
+
+  // Ensure active item is visible
+  if (idx >= 0 && nodes[idx]) {
+    const el = nodes[idx];
+    const top = el.offsetTop;
+    const bottom = top + el.offsetHeight;
+    if (top < boxEl.scrollTop) boxEl.scrollTop = top;
+    else if (bottom > boxEl.scrollTop + boxEl.clientHeight) boxEl.scrollTop = bottom - boxEl.clientHeight;
+  }
+}
+
+function selectMedicationActive_(boxEl) {
+  if (!boxEl) return false;
+  const items = Array.isArray(boxEl.__pe_items) ? boxEl.__pe_items : [];
+  const idx = Number(boxEl.__pe_activeIndex);
+  const fn = boxEl.__pe_onSelect;
+  if (!fn || !(idx >= 0 && idx < items.length)) return false;
+  try { fn(items[idx]); } catch (_) {}
+  return true;
+}
+
+function showMedicationSuggest_(boxEl, items, onSelect, q) {
   if (!boxEl) return;
   boxEl.innerHTML = '';
-  const list = Array.isArray(items) ? items : [];
+
+  const list = Array.isArray(items) ? items.filter(Boolean) : [];
   if (!list.length) {
-    boxEl.style.display = 'none';
+    hideMedicationSuggest_(boxEl);
     return;
   }
-  list.forEach(m => {
+
+  boxEl.__pe_items = list;
+  boxEl.__pe_onSelect = onSelect;
+  boxEl.__pe_activeIndex = -1;
+
+  const query = String(q || '').trim();
+
+  list.forEach((m, idx) => {
     const display = String(m.displayName || '').trim();
     if (!display) return;
 
-    const sub = [
-      m.genericName ? `Generic: ${m.genericName}` : '',
-      m.brandName ? `Brand: ${m.brandName}` : '',
-      m.form ? `Form: ${m.form}` : '',
-      m.drugGroup ? `Group: ${m.drugGroup}` : '',
-      m.subclass ? `Subclass: ${m.subclass}` : '',
-    ].filter(Boolean).join(' • ');
+    const g = String(m.genericName || '').trim();
+    const b = String(m.brandName || '').trim();
+    const f = String(m.form || '').trim();
+    const dg = String(m.drugGroup || '').trim();
+    const sc = String(m.subclass || '').trim();
+
+    const line2Parts = [
+      g ? `Gen: <span class="text-dark">${highlightMatchHtml_(g, query)}</span>` : '',
+      b ? `Brand: <span class="text-dark">${highlightMatchHtml_(b, query)}</span>` : '',
+      f ? `Form: <span class="text-dark">${highlightMatchHtml_(f, query)}</span>` : '',
+    ].filter(Boolean);
 
     const item = document.createElement('div');
     item.className = 'item';
+    item.setAttribute('data-index', String(idx));
     item.innerHTML = `
-      <div>${escapeHtml(display)}</div>
-      <div class="sub">${escapeHtml(sub || '')}</div>
+      <div class="d-flex align-items-start justify-content-between gap-2">
+        <div class="fw-semibold">${highlightMatchHtml_(display, query)}</div>
+        <div class="app-suggest-badges">
+          ${dg ? `<span class="badge rounded-pill text-bg-primary">${escapeHtml(dg)}</span>` : ''}
+          ${sc ? `<span class="badge rounded-pill text-bg-danger">${escapeHtml(sc)}</span>` : ''}
+        </div>
+      </div>
+      <div class="sub">${line2Parts.join(' • ')}</div>
     `;
-    item.addEventListener('click', () => onSelect(m));
+
+    item.addEventListener('mouseenter', () => setMedicationActive_(boxEl, idx));
+    item.addEventListener('mousedown', (ev) => {
+      // Prevent input blur before click handler
+      ev.preventDefault();
+    });
+    item.addEventListener('click', () => {
+      setMedicationActive_(boxEl, idx);
+      onSelect(m);
+    });
+
     boxEl.appendChild(item);
   });
+
   boxEl.style.display = 'block';
+  setMedicationActive_(boxEl, 0);
+}
+
+async function searchMedicationRemote_(q) {
+  const query = String(q || '').trim();
+  const key = normalizeSearch_(query);
+  if (key.length < MED_SEARCH_CFG_.minCharsRemote) return [];
+
+  const cached = getMedCache_(key);
+  if (cached) return cached;
+
+  const res = await apiGet('searchMedication', { q: query, limit: MED_SEARCH_CFG_.limit });
+  const items = Array.isArray(res?.items) ? res.items : (Array.isArray(res) ? res : []);
+  putMedCache_(key, items);
+  return items;
 }
 
 async function searchMedication_(q) {
-  const query = String(q || '').trim();
-  if (query.length < 2) return [];
-  const res = await apiGet('searchMedication', { q: query, limit: 12 });
-  const items = Array.isArray(res?.items) ? res.items : (Array.isArray(res) ? res : []);
-  return items;
+  // Prefer local (prefetched) search. If index is not available yet, fall back to remote.
+  const local = searchMedicationLocal_(q);
+  if (Array.isArray(local)) return local;
+  return searchMedicationRemote_(q);
 }
 
 function wireMedicationTypeahead_(inputId, suggestId, { primary = false } = {}) {
@@ -631,6 +890,42 @@ function wireMedicationTypeahead_(inputId, suggestId, { primary = false } = {}) 
 
   let timer = null;
   let reqSeq = 0;
+
+  // Dismiss suggestions when clicking outside
+  document.addEventListener('click', (ev) => {
+    const t = ev.target;
+    if (t === input || box.contains(t)) return;
+    hideMedicationSuggest_(box);
+  });
+
+  // Keyboard navigation: ArrowUp/Down, Enter, Esc
+  input.addEventListener('keydown', (ev) => {
+    if (box.style.display !== 'block') return;
+    if (ev.key === 'ArrowDown') {
+      ev.preventDefault();
+      setMedicationActive_(box, (Number(box.__pe_activeIndex) || 0) + 1);
+    } else if (ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      setMedicationActive_(box, (Number(box.__pe_activeIndex) || 0) - 1);
+    } else if (ev.key === 'Enter') {
+      const ok = selectMedicationActive_(box);
+      if (ok) {
+        ev.preventDefault();
+        hideMedicationSuggest_(box);
+      }
+    } else if (ev.key === 'Escape') {
+      ev.preventDefault();
+      hideMedicationSuggest_(box);
+    }
+  });
+
+  // Preload medication index once the user is about to search (keeps UX fast without extra typing rules).
+  if (MED_SEARCH_CFG_.prefetchOnFocus) {
+    input.addEventListener('focus', () => {
+      // silent warm-up; results are still available via remote fallback if this fails
+      prefetchMedicationIndex_({ silent: true });
+    });
+  }
 
   input.addEventListener('input', (ev) => {
     const q = ev.target.value || '';
@@ -660,8 +955,63 @@ function wireMedicationTypeahead_(inputId, suggestId, { primary = false } = {}) 
     timer = setTimeout(async () => {
       const seq = ++reqSeq;
       try {
-        const items = await searchMedication_(q);
+        const norm = normalizeSearch_(q);
+
+        if (!norm) {
+          hideMedicationSuggest_(box);
+          return;
+        }
+
+        // Local (prefetched) search keeps UX snappy without extra API calls.
+        if (norm.length < MED_SEARCH_CFG_.minCharsLocal) {
+          box.innerHTML = `<div class="item text-muted small">พิมพ์อย่างน้อย ${MED_SEARCH_CFG_.minCharsLocal} ตัวอักษร</div>`;
+          box.style.display = 'block';
+          return;
+        }
+
+        // Ensure medication index is ready. We load it on first focus / first use.
+        if (!Array.isArray(medIndex_) || !medIndex_.length) {
+          box.innerHTML = '<div class="item text-muted small">กำลังโหลดรายการยา…</div>';
+          box.style.display = 'block';
+          await prefetchMedicationIndex_({ silent: true });
+          if (seq !== reqSeq) return; // ignore stale
+
+          // If prefetch fails and query is still short, advise remote minimum.
+          if ((!Array.isArray(medIndex_) || !medIndex_.length) && norm.length < MED_SEARCH_CFG_.minCharsRemote) {
+            box.innerHTML = `<div class="item text-muted small">โหลดรายการยาไม่สำเร็จ — กรุณาพิมพ์อย่างน้อย ${MED_SEARCH_CFG_.minCharsRemote} ตัวอักษร</div>`;
+            box.style.display = 'block';
+            return;
+          }
+        }
+
+        // Immediate feedback for remote fallback (rare)
+        if (!Array.isArray(medIndex_) || !medIndex_.length) {
+          box.innerHTML = '<div class="item text-muted small">กำลังค้นหา…</div>';
+          box.style.display = 'block';
+        }
+        // Fast path: local refine when user continues typing and previous result set was not truncated
+        let items;
+        if (
+          lastMedQuery_ &&
+          norm.startsWith(lastMedQuery_) &&
+          Array.isArray(lastMedItems_) &&
+          lastMedItems_.length > 0 &&
+          lastMedItems_.length < MED_SEARCH_CFG_.limit
+        ) {
+          const qKey = norm;
+          items = lastMedItems_.filter(m => {
+            const hay = normalizeSearch_(`${m.displayName || ''} ${m.genericName || ''} ${m.brandName || ''} ${m.form || ''}`);
+            return hay.includes(qKey);
+          });
+        } else {
+          items = await searchMedication_(q);
+        }
+
         if (seq !== reqSeq) return; // ignore stale
+
+        lastMedQuery_ = norm;
+        lastMedItems_ = Array.isArray(items) ? items : [];
+
         showMedicationSuggest_(box, items, (item) => {
           const display = String(item?.displayName || '').trim();
           if (!display) return;
@@ -673,13 +1023,13 @@ function wireMedicationTypeahead_(inputId, suggestId, { primary = false } = {}) 
           } else {
             state.selectedDrug2 = item;
           }
-          box.style.display = 'none';
-        });
+          hideMedicationSuggest_(box);
+        }, q);
       } catch (_) {
         // silently hide suggestions; user can still type manually if needed
-        box.style.display = 'none';
+        hideMedicationSuggest_(box);
       }
-    }, 220);
+    }, MED_SEARCH_CFG_.debounceMs);
   });
 }
 
