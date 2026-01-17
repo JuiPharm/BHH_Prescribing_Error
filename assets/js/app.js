@@ -70,7 +70,7 @@ const state = {
   selectedDrug1: null,
   selectedDrug2: null,
   admin: { staffId: '', role: 'Not verified', ok: false, name: '' },
-  charts: { dept: null, specialty: null, drugGroup: null, doctor: null, severity: null, month: null },
+  charts: { dept: null, specialty: null, drugGroup: null, generic: null, subclass: null, doctor: null, severity: null, month: null },
 };
 
 function $(id) { return document.getElementById(id); }
@@ -320,6 +320,7 @@ if (!mrList.some(x => normalizeKey_(x) === 'none of above')) mrList.push('None o
 renderOptions($('medicationReconciliation'), mrList, { placeholder: 'เลือก…' });
   renderOptions($('drugGroup'), state.ref.lists?.drugGroups || [], { placeholder: 'เลือก…' });
   markSystemFilled_('drugGroup');
+  markSystemFilled_('subclass');
   renderOptions($('severityLevel'), state.ref.lists?.severityLevels || [], { placeholder: 'เลือก…' });
 
   // Department
@@ -345,6 +346,41 @@ renderOptions($('medicationReconciliation'), mrList, { placeholder: 'เลื�
     });
   }
 
+  // Viz additional filters (optional)
+  const renderVizList = (id, labelAll, items) => {
+    const el = $(id);
+    if (!el) return;
+    el.innerHTML = '';
+    const all = document.createElement('option');
+    all.value = '';
+    all.textContent = labelAll;
+    el.appendChild(all);
+    (items || []).forEach(v => {
+      const opt = document.createElement('option');
+      opt.value = String(v);
+      opt.textContent = String(v);
+      el.appendChild(opt);
+    });
+  };
+
+  renderVizList('vizSource', 'All sources', state.ref.lists?.prescribingErrorFrom || []);
+  renderVizList('vizSeverity', 'All severity', state.ref.lists?.severityLevels || []);
+  renderVizList('vizDrugGroup', 'All drug groups', state.ref.lists?.drugGroups || []);
+  renderVizList('vizSubclass', 'All subclasses', state.ref.lists?.subclasses || []);
+  renderVizList('vizGeneric', 'All generics', state.ref.lists?.generics || []);
+
+  renderVizList('vizConsult', 'All consult results', state.ref.lists?.consultResults || []);
+  renderVizList('vizErrorType', 'All error types', state.ref.lists?.errorTypes || []);
+
+  const specialties = Array.from(new Set((state.ref.doctors || []).map(d => String(d.specialty || '').trim()).filter(Boolean))).sort();
+  renderVizList('vizSpecialty', 'All specialties', specialties);
+
+  const doctors = Array.from(new Set((state.ref.doctors || []).map(d => String(d.name || '').trim()).filter(Boolean))).sort();
+  renderVizList('vizDoctor', 'All doctors', doctors);
+
+  const doctorTypes = Array.from(new Set((state.ref.doctors || []).map(d => String(d.type || '').trim()).filter(Boolean))).sort();
+  renderVizList('vizDoctorType', 'All doctor types', doctorTypes);
+
   // Doctor modal dept list
   renderOptions($('doctorDept'), state.ref.departments || [], { placeholder: '-' });
 }
@@ -369,7 +405,7 @@ function resetReportForm() {
     'prescribingErrorFrom','hn','eventDate','eventTime','department',
     'doctorSearch','specialty','doctorType','errorDetails','consult',
     'errorType','medicationReconciliation','reporter','drug1','drug2',
-    'drugGroup','severityLevel'
+    'drugGroup','subclass','severityLevel'
   ].forEach((id) => {
     const el = $(id);
     if (!el) return;
@@ -386,6 +422,7 @@ function resetReportForm() {
   const d2 = $('drug2Suggest'); if (d2) d2.style.display = 'none';
   // drugGroup is auto-populated from Drug 1 and locked
   const dg = $('drugGroup'); if (dg) dg.value = '';
+  const sc = $('subclass'); if (sc) sc.value = '';
 
   // Focus first field for faster data entry
   $('prescribingErrorFrom')?.focus();
@@ -411,6 +448,7 @@ function getReportPayload() {
     drug1: $('drug1')?.value.trim() || '',
     drug2: $('drug2')?.value.trim() || '',
     drugGroup: $('drugGroup')?.value.trim() || '',
+    subclass: $('subclass')?.value.trim() || '',
     severityLevel: $('severityLevel')?.value.trim() || '',
   };
 }
@@ -525,16 +563,25 @@ function ensureSelectOption_(selectEl, value) {
   selectEl.appendChild(opt);
 }
 
+function setSubclassFromDrug1_(item) {
+  const scEl = $('subclass');
+  if (!scEl) return;
+  const sc = String(item?.subclass || '').trim();
+  scEl.value = sc;
+}
+
 function setDrugGroupFromDrug1_(item) {
   const dgEl = $('drugGroup');
   if (!dgEl) return;
   const group = String(item?.drugGroup || '').trim();
   if (!group) {
     dgEl.value = '';
+    setSubclassFromDrug1_(null);
     return;
   }
   ensureSelectOption_(dgEl, group);
   dgEl.value = group;
+  setSubclassFromDrug1_(item);
 }
 
 function showMedicationSuggest_(boxEl, items, onSelect) {
@@ -554,6 +601,7 @@ function showMedicationSuggest_(boxEl, items, onSelect) {
       m.brandName ? `Brand: ${m.brandName}` : '',
       m.form ? `Form: ${m.form}` : '',
       m.drugGroup ? `Group: ${m.drugGroup}` : '',
+      m.subclass ? `Subclass: ${m.subclass}` : '',
     ].filter(Boolean).join(' • ');
 
     const item = document.createElement('div');
@@ -940,6 +988,8 @@ async function loadVisualization(params = {}) {
   renderDeptChart(data.charts?.byDepartment || []);
   renderSpecialtyChart(data.charts?.bySpecialty || []);
   renderDrugGroupChart(data.charts?.byDrugGroup || []);
+  renderGenericChart(data.charts?.byGeneric || []);
+  renderSubclassChart(data.charts?.bySubclass || []);
   renderDoctorChart(data.charts?.byDoctor || []);
   renderSeverityChart(data.charts?.bySeverity || []);
   renderMonthChart(data.charts?.byMonth || []);
@@ -1338,6 +1388,20 @@ function renderDrugGroupChart(series) {
   state.charts.drugGroup = _renderBar_($('chartDrugGroup'), labels, values, { horizontal: true });
 }
 
+function renderGenericChart(series) {
+  destroyChart(state.charts.generic);
+  const labels = series.map(x => x.label);
+  const values = series.map(x => x.count);
+  state.charts.generic = _renderBar_($('chartGeneric'), labels, values, { horizontal: true });
+}
+
+function renderSubclassChart(series) {
+  destroyChart(state.charts.subclass);
+  const labels = series.map(x => x.label);
+  const values = series.map(x => x.count);
+  state.charts.subclass = _renderBar_($('chartSubclass'), labels, values, { horizontal: true });
+}
+
 function renderDoctorChart(series) {
   destroyChart(state.charts.doctor);
   const labels = series.map(x => x.label);
@@ -1393,6 +1457,7 @@ async function init() {
   markSystemFilled_('specialty');
   markSystemFilled_('doctorType');
   markSystemFilled_('drugGroup');
+  markSystemFilled_('subclass');
   renderApiUrl_();
 
   // Modals
@@ -1529,6 +1594,16 @@ async function init() {
     if ($('vizStart')) $('vizStart').value = '';
     if ($('vizEnd')) $('vizEnd').value = '';
     if ($('vizDept')) $('vizDept').value = '';
+    if ($('vizSource')) $('vizSource').value = '';
+    if ($('vizSeverity')) $('vizSeverity').value = '';
+    if ($('vizDrugGroup')) $('vizDrugGroup').value = '';
+    if ($('vizSubclass')) $('vizSubclass').value = '';
+    if ($('vizGeneric')) $('vizGeneric').value = '';
+    if ($('vizConsult')) $('vizConsult').value = '';
+    if ($('vizErrorType')) $('vizErrorType').value = '';
+    if ($('vizSpecialty')) $('vizSpecialty').value = '';
+    if ($('vizDoctor')) $('vizDoctor').value = '';
+    if ($('vizDoctorType')) $('vizDoctorType').value = '';
     try { await loadVisualization({}); } catch (e) { toast(e.message, 'danger'); }
   });
   $('btnExportXlsx')?.addEventListener('click', async () => {
@@ -1587,6 +1662,16 @@ function getVizParamsFromUI() {
     startDate: $('vizStart')?.value || '',
     endDate: $('vizEnd')?.value || '',
     department: $('vizDept')?.value || '',
+    source: $('vizSource')?.value || '',
+    severityLevel: $('vizSeverity')?.value || '',
+    drugGroup: $('vizDrugGroup')?.value || '',
+    subclass: $('vizSubclass')?.value || '',
+    genericName: $('vizGeneric')?.value || '',
+    consult: $('vizConsult')?.value || '',
+    errorType: $('vizErrorType')?.value || '',
+    specialty: $('vizSpecialty')?.value || '',
+    doctor: $('vizDoctor')?.value || '',
+    doctorType: $('vizDoctorType')?.value || '',
   };
 }
 
