@@ -429,11 +429,21 @@ function resetReportForm() {
 }
 
 function getReportPayload() {
-  const doctorName = state.selectedDoctor?.name || $('doctorSearch')?.value.trim() || '';
+  const doctorName =
+    state.selectedDoctor?.name || $('doctorSearch')?.value.trim() || '';
+
+  // --- HN normalize ---
+  const hnRaw = $('hn')?.value.trim() || '';
+  const hnNorm = normalizeHNClient(hnRaw);
+
+  // (optional) เขียนค่าที่ normalize แล้วกลับไปที่ input
+  if (hnNorm && $('hn')) {
+    $('hn').value = hnNorm;
+  }
 
   return {
     prescribingErrorFrom: $('prescribingErrorFrom')?.value.trim() || '',
-    hn: $('hn')?.value.trim() || '',
+    hn: hnNorm,
     eventDate: $('eventDate')?.value || '',
     eventTime: $('eventTime')?.value || '',
     department: $('department')?.value.trim() || '',
@@ -443,7 +453,8 @@ function getReportPayload() {
     errorDetails: $('errorDetails')?.value.trim() || '',
     consult: $('consult')?.value.trim() || '',
     errorType: $('errorType')?.value.trim() || '',
-    medicationReconciliation: $('medicationReconciliation')?.value.trim() || '',
+    medicationReconciliation:
+      $('medicationReconciliation')?.value.trim() || '',
     reporter: $('reporter')?.value.trim() || '',
     drug1: $('drug1')?.value.trim() || '',
     drug2: $('drug2')?.value.trim() || '',
@@ -452,6 +463,7 @@ function getReportPayload() {
     severityLevel: $('severityLevel')?.value.trim() || '',
   };
 }
+
 
 function reportClientValidate(payload) {
   const required = [
@@ -479,6 +491,21 @@ function reportClientValidate(payload) {
 
   return null;
 }
+function normalizeHNClient(raw) {
+  if (!raw) return '';
+
+  const digits = String(raw).replace(/\D/g, '');
+
+  // ต้องมีอย่างน้อย 8 หลัก (XX + xxxxxx)
+  if (digits.length < 8) return '';
+
+  const body = digits.slice(-8);
+  const xx = body.slice(0, 2);
+  const run = body.slice(2).padStart(6, '0');
+
+  return `07-${xx}-${run}`;
+}
+
 
 // ---------------- Doctor typeahead ----------------
 
@@ -1790,19 +1817,43 @@ if (!aoa.length) {
   return;
 }
 
-/* ===== FIX HN FORMAT (force text) ===== */
-const header = aoa[0] || [];
-const hnColIndex = header.findIndex(h => String(h).trim().toUpperCase() === 'HN');
+/* ===== FIX & NORMALIZE HN FORMAT (07-XX-xxxxxx) ===== */
+/*
+  Column C (0-based index = 2) is HN
+*/
+const HN_COL_INDEX = 2;
 
-if (hnColIndex >= 0) {
-  for (let i = 1; i < aoa.length; i++) {
-    const v = aoa[i]?.[hnColIndex];
-    if (v !== undefined && v !== null && v !== '') {
-      aoa[i][hnColIndex] = "'" + String(v);
-    }
+function normalizeHN(raw) {
+  if (!raw) return '';
+
+  // ดึงเฉพาะตัวเลขออกมา
+  const digits = String(raw).replace(/\D/g, '');
+
+  // ต้องมีอย่างน้อย 10 หลัก: 07 + XX + xxxxxx
+  // ถ้าน้อยกว่า ให้เติม 0 หน้าเลข running
+  let d = digits;
+  if (d.length < 10) {
+    const prefix = d.slice(0, 4);       // 07XX
+    const run = d.slice(4).padStart(6, '0');
+    d = prefix + run;
+  }
+
+  // กันกรณีข้อมูลเพี้ยน
+  if (d.length < 10) return raw;
+
+  return `07-${d.slice(2, 4)}-${d.slice(4, 10)}`;
+}
+
+for (let i = 1; i < aoa.length; i++) {
+  const v = aoa[i]?.[HN_COL_INDEX];
+  if (v !== undefined && v !== null && v !== '') {
+    const formatted = normalizeHN(v);
+    // ใส่ ' เพื่อบังคับ Excel เป็น Text
+    aoa[i][HN_COL_INDEX] = "'" + formatted;
   }
 }
-/* ==================================== */
+/* =================================================== */
+
 
 
   const wb = XLSX.utils.book_new();
