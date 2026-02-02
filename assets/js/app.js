@@ -1784,11 +1784,26 @@ async function exportXlsx() {
   const params = getVizParamsFromUI();
   const data = await apiGet('exportErrors', params);
 
-  const aoa = data.aoa || [];
-  if (!aoa.length) {
-    toast('ไม่มีข้อมูลสำหรับ Export ตามตัวกรองปัจจุบัน', 'warning');
-    return;
+const aoa = data.aoa || [];
+if (!aoa.length) {
+  toast('ไม่มีข้อมูลสำหรับ Export ตามตัวกรองปัจจุบัน', 'warning');
+  return;
+}
+
+/* ===== FIX HN FORMAT (force text) ===== */
+const header = aoa[0] || [];
+const hnColIndex = header.findIndex(h => String(h).trim().toUpperCase() === 'HN');
+
+if (hnColIndex >= 0) {
+  for (let i = 1; i < aoa.length; i++) {
+    const v = aoa[i]?.[hnColIndex];
+    if (v !== undefined && v !== null && v !== '') {
+      aoa[i][hnColIndex] = "'" + String(v);
+    }
   }
+}
+/* ==================================== */
+
 
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(aoa);
