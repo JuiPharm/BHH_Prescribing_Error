@@ -429,21 +429,11 @@ function resetReportForm() {
 }
 
 function getReportPayload() {
-  const doctorName =
-    state.selectedDoctor?.name || $('doctorSearch')?.value.trim() || '';
-
-  // --- HN normalize ---
-  const hnRaw = $('hn')?.value.trim() || '';
-  const hnNorm = normalizeHNClient(hnRaw);
-
-  // (optional) เขียนค่าที่ normalize แล้วกลับไปที่ input
-  if (hnNorm && $('hn')) {
-    $('hn').value = hnNorm;
-  }
+  const doctorName = state.selectedDoctor?.name || $('doctorSearch')?.value.trim() || '';
 
   return {
     prescribingErrorFrom: $('prescribingErrorFrom')?.value.trim() || '',
-    hn: hnNorm,
+    hn: $('hn')?.value.trim() || '',
     eventDate: $('eventDate')?.value || '',
     eventTime: $('eventTime')?.value || '',
     department: $('department')?.value.trim() || '',
@@ -453,8 +443,7 @@ function getReportPayload() {
     errorDetails: $('errorDetails')?.value.trim() || '',
     consult: $('consult')?.value.trim() || '',
     errorType: $('errorType')?.value.trim() || '',
-    medicationReconciliation:
-      $('medicationReconciliation')?.value.trim() || '',
+    medicationReconciliation: $('medicationReconciliation')?.value.trim() || '',
     reporter: $('reporter')?.value.trim() || '',
     drug1: $('drug1')?.value.trim() || '',
     drug2: $('drug2')?.value.trim() || '',
@@ -463,7 +452,6 @@ function getReportPayload() {
     severityLevel: $('severityLevel')?.value.trim() || '',
   };
 }
-
 
 function reportClientValidate(payload) {
   const required = [
@@ -491,21 +479,6 @@ function reportClientValidate(payload) {
 
   return null;
 }
-function normalizeHNClient(raw) {
-  if (!raw) return '';
-
-  const digits = String(raw).replace(/\D/g, '');
-
-  // ต้องมีอย่างน้อย 8 หลัก (XX + xxxxxx)
-  if (digits.length < 8) return '';
-
-  const body = digits.slice(-8);
-  const xx = body.slice(0, 2);
-  const run = body.slice(2).padStart(6, '0');
-
-  return `07-${xx}-${run}`;
-}
-
 
 // ---------------- Doctor typeahead ----------------
 
@@ -1803,6 +1776,34 @@ function renderMonthChart(series) {
 
 // ---------------- Export XLSX ----------------
 
+function normalizeHN_(v) {
+  // HN is stored/returned sometimes as an Excel/Sheets Date, which ends up serialized as:
+  //   "yyyy-MM-dd HH:mm:ss" (e.g. "3960-07-16 00:00:00")
+  // We need to export it as *text* in the format: "MM-DD-xxxxxx" (e.g. "07-16-003960").
+  if (v === null || v === undefined) return '';
+  // If Apps Script ever returns a Date object (unlikely in JSONP, but safe):
+  if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v)) {
+    const mm = String(v.getMonth() + 1).padStart(2, '0');
+    const dd = String(v.getDate()).padStart(2, '0');
+    const yy = String(v.getFullYear()).padStart(6, '0');
+    return `${mm}-${dd}-${yy}`;
+  }
+  const s = String(v).trim();
+  if (!s) return '';
+  // Already in MM-DD-xxxxxx -> just normalize last part padding.
+  let m = s.match(/^(\d{2})-(\d{2})-(\d{1,6})$/);
+  if (m) return `${m[1]}-${m[2]}-${String(m[3]).padStart(6,'0')}`;
+  // Handle "yyyy-MM-dd ..." (or "n-MM-dd ...") -> treat first part as HN serial, export MM-DD-serial.
+  m = s.match(/^(\d{1,6})-(\d{2})-(\d{2})(?:\s+\d{2}:\d{2}:\d{2})?$/);
+  if (m) return `${m[2]}-${m[3]}-${String(m[1]).padStart(6,'0')}`;
+  // Handle "yyyy/MM/dd ..." just in case.
+  m = s.match(/^(\d{1,6})\/(\d{2})\/(\d{2})(?:\s+\d{2}:\d{2}:\d{2})?$/);
+  if (m) return `${m[2]}-${m[3]}-${String(m[1]).padStart(6,'0')}`;
+  return s; // fallback (keep as-is)
+}
+
+
+
 async function exportXlsx() {
   if (typeof XLSX === 'undefined') {
     throw new Error('ไม่พบไลบรารี XLSX (ตรวจสอบว่าเพิ่ม script xlsx.full.min.js ใน index.html แล้ว)');
@@ -1811,50 +1812,19 @@ async function exportXlsx() {
   const params = getVizParamsFromUI();
   const data = await apiGet('exportErrors', params);
 
-const aoa = data.aoa || [];
-if (!aoa.length) {
-  toast('ไม่มีข้อมูลสำหรับ Export ตามตัวกรองปัจจุบัน', 'warning');
-  return;
-}
-
-/* ===== FIX & NORMALIZE HN FORMAT (07-XX-xxxxxx) ===== */
-/*
-  Column C (0-based index = 2) is HN
-*/
-const HN_COL_INDEX = 2;
-
-function normalizeHN(raw) {
-  if (!raw) return '';
-
-  // ดึงเฉพาะตัวเลขออกมา
-  const digits = String(raw).replace(/\D/g, '');
-
-  // ต้องมีอย่างน้อย 10 หลัก: 07 + XX + xxxxxx
-  // ถ้าน้อยกว่า ให้เติม 0 หน้าเลข running
-  let d = digits;
-  if (d.length < 10) {
-    const prefix = d.slice(0, 4);       // 07XX
-    const run = d.slice(4).padStart(6, '0');
-    d = prefix + run;
+  const aoa = data.aoa || [];
+  // Fix HN (Column C) formatting: force text in "MM-DD-xxxxxx" so Excel won't auto-convert to Date.
+  // Column index: 2 (A=0,B=1,C=2). Skip header row at index 0.
+  for (let i = 1; i < aoa.length; i++) {
+    if (aoa[i] && aoa[i].length > 2) {
+      aoa[i][2] = normalizeHN_(aoa[i][2]);
+    }
   }
 
-  // กันกรณีข้อมูลเพี้ยน
-  if (d.length < 10) return raw;
-
-  return `07-${d.slice(2, 4)}-${d.slice(4, 10)}`;
-}
-
-for (let i = 1; i < aoa.length; i++) {
-  const v = aoa[i]?.[HN_COL_INDEX];
-  if (v !== undefined && v !== null && v !== '') {
-    const formatted = normalizeHN(v);
-    // ใส่ ' เพื่อบังคับ Excel เป็น Text
-    aoa[i][HN_COL_INDEX] = "'" + formatted;
+  if (!aoa.length) {
+    toast('ไม่มีข้อมูลสำหรับ Export ตามตัวกรองปัจจุบัน', 'warning');
+    return;
   }
-}
-/* =================================================== */
-
-
 
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(aoa);
