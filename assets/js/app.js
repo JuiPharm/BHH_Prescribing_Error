@@ -1,2064 +1,414 @@
-/* Prescribing Error GH Pages Frontend
- *
- * After deploying Apps Script as a Web App, set the /exec URL in:
- * - UI: API Connection > ตั้งค่า
- * - or localStorage key: pe_api_url
- *
- * Notes:
- * - Cross-origin (GitHub Pages -> Apps Script) works reliably with JSONP (GET + callback).
- * - POST responses may be blocked by CORS; this client falls back to no-cors fire-and-forget for POST,
- *   then refreshes data via JSONP.
+/* Prescribing Error Frontend
+ * Works with both:
+ * - Google Apps Script backend via JSONP GET + POST fallback
+ * - Supabase Edge Function backend via normal fetch
  */
+(function () {
+  'use strict';
 
-const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbyIy7tJrZEAeesfARaBVgPaPCt4WXqcLRCIPOJ2_zPWxWCxWZO0pjYrJeCF6m-DEdjF/exec';
-const LOCK_API_URL = true; // Production: user does not need to set Web App URL
-const API_URL_STORAGE_KEY = 'pe_api_url';
+  const CONFIG = Object.assign({ API_URL: '', API_MODE: 'jsonp', LOCK_API_URL: false, VERSION: 'dev' }, window.PE_CONFIG || {});
+  const API_URL_STORAGE_KEY = 'pe_api_url';
+  const API_CACHE_TTL = { getReferenceData: 10 * 60 * 1000, getVisualization: 90 * 1000, getMedicationIndex: 30 * 60 * 1000 };
 
-function normalizeApiUrl_(value) {
-  const v = (value || '').toString().trim();
-  if (!v) return '';
-  return v.replace(/\/+$/, '');
-}
-
-function getApiUrl_() {
-  // Admin override (for testing): ?api=<WEB_APP_URL>
-  const fromQS = new URLSearchParams(window.location.search).get('api');
-  if (fromQS) return normalizeApiUrl_(decodeURIComponent(fromQS));
-
-  const def = normalizeApiUrl_(DEFAULT_API_URL);
-
-  // Production mode: lock to DEFAULT_API_URL (ignore localStorage to avoid stale/bad configs).
-  if (LOCK_API_URL) return def;
-
-  const fromStorage = localStorage.getItem(API_URL_STORAGE_KEY);
-  if (fromStorage) return normalizeApiUrl_(fromStorage);
-  return def;
-}
-
-function setApiUrl_(value) {
-  // In production, Web App URL is fixed in DEFAULT_API_URL.
-  // We keep this for compatibility, but do not persist user changes.
-  if (LOCK_API_URL) {
-    try { localStorage.removeItem(API_URL_STORAGE_KEY); } catch (_) {}
-    renderApiUrl_();
-    return getApiUrl_();
-  }
-
-  const v = normalizeApiUrl_(value);
-  if (v) localStorage.setItem(API_URL_STORAGE_KEY, v);
-  else localStorage.removeItem(API_URL_STORAGE_KEY);
-  renderApiUrl_();
-  return v;
-}
-
-function getApiUrlOrThrow_() {
-  const v = getApiUrl_();
-  if (!v) throw new Error('ยังไม่ได้ตั้งค่า Web App URL (ผู้ดูแลระบบต้องตั้งค่า DEFAULT_API_URL ในไฟล์ app.js)');
-  return v;
-}
-
-function renderApiUrl_() {
-  // Do not display Web App URL to end users.
-  const v = getApiUrl_();
-  if (v) setApiStatus_('Success', 'success');
-  else setApiStatus_('Not configured', 'danger');
-}
-
-const state = {
-  ref: null,
-  selectedDoctor: null,
-  selectedDrug1: null,
-  selectedDrug2: null,
-  admin: { staffId: '', role: 'Not verified', ok: false, name: '' },
-  charts: { dept: null, specialty: null, drugGroup: null, generic: null, subclass: null, doctor: null, severity: null, month: null },
-};
-
-function $(id) { return document.getElementById(id); }
-
-function setText(id, text) {
-  const el = $(id);
-  if (el) el.textContent = text;
-}
-
-function toast(message, type = 'info') {
-  const host = $('toastHost');
-  if (!host) return;
-
-  const el = document.createElement('div');
-  el.className = 'toast align-items-center show';
-  el.setAttribute('role', 'alert');
-
-  const allowed = new Set(['primary','secondary','success','danger','warning','info','light','dark']);
-  const badgeType = allowed.has(type) ? type : (type === 'error' ? 'danger' : 'secondary');
-
-  el.innerHTML = `
-    <div class="d-flex">
-      <div class="toast-body">
-        <span class="badge rounded-pill me-2 text-bg-${escapeHtml(String(badgeType))}">${escapeHtml(String(type).toUpperCase())}</span>
-        ${escapeHtml(message)}
-      </div>
-      <button type="button" class="btn-close me-2 m-auto" aria-label="Close"></button>
-    </div>
-  `;
-
-  host.appendChild(el);
-  el.querySelector('.btn-close')?.addEventListener('click', () => el.remove());
-  setTimeout(() => { if (el.isConnected) el.remove(); }, 4500);
-}
-
-
-
-function setApiStatus_(text, tone = 'secondary') {
-  const el = document.getElementById('apiStatusText');
-  if (!el) return;
-  el.textContent = String(text || '-');
-  el.classList.remove('text-success','text-danger','text-warning','text-secondary');
-  const allowed = new Set(['success','danger','warning','secondary']);
-  el.classList.add(`text-${allowed.has(tone) ? tone : 'secondary'}`);
-}
-
-function applyApiUiPolicy_() {
-  // Hide API settings UI for end users (URL is set by DEFAULT_API_URL).
-  if (!LOCK_API_URL) return;
-  const btn = document.getElementById('btnApiSettings');
-  if (btn) btn.style.display = 'none';
-  const help = document.getElementById('apiUrlHelp');
-  if (help) help.style.display = 'none';
-  const urlText = document.getElementById('apiUrlText');
-  if (urlText) urlText.style.display = 'none';
-}
-
-
-function markSystemFilled_(id) {
-  const el = $(id);
-  if (!el) return;
-  el.classList.add('app-system-filled');
-  const tag = String(el.tagName || '').toUpperCase();
-  if (tag === 'SELECT') {
-    el.disabled = true;
-    el.setAttribute('aria-disabled', 'true');
-  } else {
-    try { el.readOnly = true; } catch (_) {}
-    el.setAttribute('aria-readonly', 'true');
-  }
-}
-
-function escapeHtml(str) {
-  return String(str ?? '').replace(/[&<>"']/g, s => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#039;',
-  }[s]));
-}
-
-function renderTwoSeriesBars_(containerId, rows, aKey, bKey, aLabel, bLabel) {
-  const el = document.getElementById(containerId);
-  if (!el) return;
-
-  const safeRows = Array.isArray(rows) ? rows : [];
-  el.innerHTML = `
-    <div class="legend">
-      <span><span class="dot" style="background:var(--app-primary);opacity:.85"></span>${escapeHtml(aLabel)}</span>
-      <span><span class="dot" style="background:var(--app-accent);opacity:.75"></span>${escapeHtml(bLabel)}</span>
-    </div>
-  `;
-
-  let hasAny = false;
-
-  safeRows.forEach(r => {
-    const a = Number(r?.[aKey]) || 0;
-    const b = Number(r?.[bKey]) || 0;
-    const t = a + b;
-    if (t > 0) hasAny = true;
-
-    const pctA = t ? (a / t) * 100 : 0;
-    const pctB = t ? (b / t) * 100 : 0;
-
-    const row = document.createElement('div');
-    row.className = 'row-item';
-    row.innerHTML = `
-      <div class="label">${escapeHtml(r?.source || '-')}</div>
-      <div class="bar" title="Total ${t}">
-        <div class="seg-a" style="width:${pctA}%"></div>
-        <div class="seg-b" style="width:${pctB}%"></div>
-      </div>
-      <div class="value">${t}</div>
-    `;
-    el.appendChild(row);
-  });
-
-  if (!hasAny) {
-    const empty = document.createElement('div');
-    empty.className = 'text-muted small';
-    empty.textContent = 'ไม่พบข้อมูลตามเงื่อนไขที่เลือก';
-    el.appendChild(empty);
-  }
-}
-
-
-
-// Normalize strings for safe comparisons (e.g., Department matching between sheets)
-function normalizeKey_(value) {
-  return String(value || '').trim().toLowerCase();
-}
-
-async function apiGet(action, params = {}) {
-  // JSONP to bypass CORS.
-  const baseUrl = getApiUrlOrThrow_();
-  const u = new URL(baseUrl);
-  u.searchParams.set('action', action);
-  u.searchParams.set('t', String(Date.now()));
-
-  Object.entries(params || {}).forEach(([k, v]) => {
-    if (v === undefined || v === null || v === '') return;
-    u.searchParams.set(k, String(v));
-  });
-
-  return new Promise((resolve, reject) => {
-    const cbName = `__pe_cb_${Math.random().toString(36).slice(2)}`;
-    let done = false;
-
-    function cleanup() {
-      if (done) return;
-      done = true;
-      try { delete window[cbName]; } catch (_) {}
-      if (script && script.parentNode) script.parentNode.removeChild(script);
-    }
-
-    window[cbName] = (payload) => {
-      cleanup();
-      if (!payload || payload.success !== true) {
-        reject(new Error((payload && payload.message) || 'API error'));
-        return;
-      }
-      resolve(payload.data);
-    };
-
-    u.searchParams.set('callback', cbName);
-
-    const script = document.createElement('script');
-    script.src = u.toString();
-    script.async = true;
-    script.onerror = () => {
-      cleanup();
-      reject(new Error('เชื่อมต่อ API ไม่สำเร็จ (ตรวจสอบว่า Deploy เป็น Web app และ URL ถูกต้อง)'));
-    };
-
-    document.head.appendChild(script);
-  });
-}
-
-async function apiPost(action, data = {}) {
-  // Try normal fetch (read response). If blocked, fall back to no-cors fire-and-forget.
-  const url = getApiUrlOrThrow_();
-  const payload = JSON.stringify({ action, data });
-
-  const options = {
-    method: 'POST',
-    redirect: 'follow',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: payload,
+  const state = {
+    ref: { departments: [], doctors: [], staff: [], lists: {} },
+    selectedDoctor: null,
+    selectedDrug1: null,
+    selectedDrug2: null,
+    medIndex: null,
+    admin: { ok: false, staffId: '', name: '', role: 'Not verified' },
+    manage: { doctors: [], staff: [], departments: [] },
+    vizRows: [],
+    charts: {}
   };
 
-  try {
-    const res = await fetch(url, options);
-    const text = await res.text();
-    const json = JSON.parse(text);
-
-    if (!json || json.success !== true) throw new Error((json && json.message) || 'API error');
-    return json.data;
-  } catch (_) {
-    await fetch(url, { ...options, mode: 'no-cors' });
-    return { _opaque: true };
+  function $(id) { return document.getElementById(id); }
+  function text(id, value) { const el = $(id); if (el) el.textContent = value; }
+  function normalize(value) { return String(value || '').trim().toLowerCase(); }
+  function normalizeSearch(value) { return String(value || '').trim().toLowerCase().replace(/\s+/g, ' '); }
+  function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, (s) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[s])); }
+  function fmtDateTime(value) { const d = new Date(value); return Number.isNaN(d.getTime()) ? '-' : d.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }); }
+  function toast(message, type = 'info') {
+    const host = $('toastHost'); if (!host) return;
+    const el = document.createElement('div');
+    const tone = type === 'error' ? 'danger' : type;
+    el.className = 'toast align-items-center show';
+    el.innerHTML = `<div class="d-flex"><div class="toast-body"><span class="badge text-bg-${escapeHtml(tone)} me-2">${escapeHtml(type.toUpperCase())}</span>${escapeHtml(message)}</div><button type="button" class="btn-close me-2 m-auto"></button></div>`;
+    host.appendChild(el); el.querySelector('.btn-close')?.addEventListener('click', () => el.remove());
+    setTimeout(() => { if (el.isConnected) el.remove(); }, 4500);
   }
-}
 
-function renderOptions(selectEl, options, { placeholder = '-', valueKey = null, labelKey = null } = {}) {
-  if (!selectEl) return;
-
-  selectEl.innerHTML = '';
-  const ph = document.createElement('option');
-  ph.value = '';
-  ph.textContent = placeholder;
-  selectEl.appendChild(ph);
-
-  (options || []).forEach((o) => {
-    const opt = document.createElement('option');
-    if (valueKey && labelKey) {
-      opt.value = String(o[valueKey] ?? '');
-      opt.textContent = String(o[labelKey] ?? '');
-    } else {
-      opt.value = String(o);
-      opt.textContent = String(o);
+  function normalizeApiUrl(value) { const v = String(value || '').trim(); return v ? v.replace(/\/+$/, '') : ''; }
+  function getApiUrl() {
+    const qs = new URLSearchParams(window.location.search).get('api');
+    if (qs) return normalizeApiUrl(decodeURIComponent(qs));
+    const def = normalizeApiUrl(CONFIG.API_URL);
+    if (CONFIG.LOCK_API_URL) return def;
+    return normalizeApiUrl(localStorage.getItem(API_URL_STORAGE_KEY)) || def;
+  }
+  function setApiUrl(value) {
+    if (CONFIG.LOCK_API_URL) localStorage.removeItem(API_URL_STORAGE_KEY);
+    else if (normalizeApiUrl(value)) localStorage.setItem(API_URL_STORAGE_KEY, normalizeApiUrl(value));
+    else localStorage.removeItem(API_URL_STORAGE_KEY);
+    renderApiUrl();
+  }
+  function renderApiUrl() {
+    const url = getApiUrl();
+    text('apiUrlText', CONFIG.LOCK_API_URL ? '(locked by config)' : (url || 'Not configured'));
+    setApiStatus(url ? 'Ready' : 'Not configured', url ? 'success' : 'danger');
+    const input = $('apiUrlInput'); if (input) input.value = url;
+    if (CONFIG.LOCK_API_URL) {
+      const btn = $('btnApiSettings'); if (btn) btn.style.display = 'none';
+      const help = $('apiUrlHelp'); if (help) help.style.display = 'none';
+      const urlText = $('apiUrlText'); if (urlText) urlText.style.display = 'none';
     }
-    selectEl.appendChild(opt);
-  });
-}
+  }
+  function setApiStatus(label, tone = 'secondary') {
+    const el = $('apiStatusText'); if (!el) return;
+    el.textContent = label;
+    el.classList.remove('text-success', 'text-danger', 'text-warning', 'text-secondary');
+    el.classList.add('text-' + (['success', 'danger', 'warning', 'secondary'].includes(tone) ? tone : 'secondary'));
+  }
 
-function fmtDateTime(dt) {
-  const d = new Date(dt);
-  if (Number.isNaN(d.getTime())) return '-';
-  return d.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' });
-}
+  function cacheKey(action, params) { return `pe_api_cache:${CONFIG.VERSION}:${action}:${JSON.stringify(params || {})}`; }
+  function getCache(action, params) {
+    const ttl = API_CACHE_TTL[action]; if (!ttl) return null;
+    try {
+      const raw = sessionStorage.getItem(cacheKey(action, params)); if (!raw) return null;
+      const hit = JSON.parse(raw); if (!hit || Date.now() - hit.ts > ttl) return null;
+      return hit.data;
+    } catch (_) { return null; }
+  }
+  function setCache(action, params, data) {
+    if (!API_CACHE_TTL[action]) return;
+    try { sessionStorage.setItem(cacheKey(action, params), JSON.stringify({ ts: Date.now(), data })); } catch (_) {}
+  }
+  function clearApiCache() {
+    try { Object.keys(sessionStorage).filter(k => k.startsWith('pe_api_cache:')).forEach(k => sessionStorage.removeItem(k)); } catch (_) {}
+  }
 
-// ---------------- Reference data ----------------
+  async function apiGet(action, params = {}, { useCache = true } = {}) {
+    const cached = useCache ? getCache(action, params) : null;
+    if (cached) return cached;
+    const base = getApiUrl(); if (!base) throw new Error('ยังไม่ได้ตั้งค่า API URL');
+    const url = new URL(base);
+    url.searchParams.set('action', action);
+    Object.entries(params || {}).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v)); });
 
-function renderReferenceData_(ref) {
-  state.ref = ref || { departments: [], doctors: [], staff: [], lists: {} };
+    let data;
+    if (CONFIG.API_MODE === 'fetch') {
+      const res = await fetch(url.toString(), { method: 'GET' });
+      const json = await res.json();
+      if (!json || json.success !== true) throw new Error(json?.message || json?.error || 'API error');
+      data = json.data;
+    } else {
+      data = await new Promise((resolve, reject) => {
+        const cbName = `__pe_cb_${Math.random().toString(36).slice(2)}`;
+        let done = false;
+        let script;
+        function cleanup() { if (done) return; done = true; try { delete window[cbName]; } catch (_) {} if (script?.parentNode) script.parentNode.removeChild(script); }
+        window[cbName] = (payload) => { cleanup(); if (!payload || payload.success !== true) reject(new Error(payload?.message || 'API error')); else resolve(payload.data); };
+        url.searchParams.set('callback', cbName);
+        url.searchParams.set('_', String(Date.now()));
+        script = document.createElement('script'); script.src = url.toString(); script.async = true;
+        script.onerror = () => { cleanup(); reject(new Error('เชื่อมต่อ API ไม่สำเร็จ')); };
+        document.head.appendChild(script);
+      });
+    }
+    setCache(action, params, data);
+    return data;
+  }
 
-  // Dropdown lists
-  renderOptions($('prescribingErrorFrom'), state.ref.lists?.prescribingErrorFrom || [], { placeholder: 'เลือก…' });
-  renderOptions($('consult'), state.ref.lists?.consultResults || [], { placeholder: 'เลือก…' });
-  renderOptions($('errorType'), state.ref.lists?.errorTypes || [], { placeholder: 'เลือก…' });
-  // Process ที่ตรวจพบ Prescribing Error (Medication reconciliation / Home Med)
-const mrList = Array.isArray(state.ref.lists?.medicationReconciliation)
-  ? [...state.ref.lists.medicationReconciliation]
-  : [];
-if (!mrList.some(x => normalizeKey_(x) === 'none of above')) mrList.push('None of Above');
-renderOptions($('medicationReconciliation'), mrList, { placeholder: 'เลือก…' });
-  renderOptions($('drugGroup'), state.ref.lists?.drugGroups || [], { placeholder: 'เลือก…' });
-  markSystemFilled_('drugGroup');
-  markSystemFilled_('subclass');
-  renderOptions($('severityLevel'), state.ref.lists?.severityLevels || [], { placeholder: 'เลือก…' });
+  async function apiPost(action, data = {}) {
+    const base = getApiUrl(); if (!base) throw new Error('ยังไม่ได้ตั้งค่า API URL');
+    const payload = JSON.stringify({ action, data });
+    if (CONFIG.API_MODE === 'fetch') {
+      const res = await fetch(base, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload });
+      const json = await res.json();
+      if (!json || json.success !== true) throw new Error(json?.message || json?.error || 'API error');
+      clearApiCache();
+      return json.data;
+    }
+    const options = { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: payload };
+    try {
+      const res = await fetch(base, options);
+      const text = await res.text();
+      const json = JSON.parse(text);
+      if (!json || json.success !== true) throw new Error(json?.message || 'API error');
+      clearApiCache();
+      return json.data;
+    } catch (_) {
+      await fetch(base, Object.assign({}, options, { mode: 'no-cors' }));
+      clearApiCache();
+      return { opaque: true };
+    }
+  }
 
-  // Department
-  renderOptions($('department'), state.ref.departments || [], { placeholder: 'เลือกแผนก…' });
-
-  // Reporter
-  const staffOpts = (state.ref.staff || []).map(s => ({ value: s.staffId, label: `${s.staffId} - ${s.name}` }));
-  renderOptions($('reporter'), staffOpts, { placeholder: 'เลือกผู้รายงาน…', valueKey: 'value', labelKey: 'label' });
-
-  // Viz dept filter
-  const vizDept = $('vizDept');
-  if (vizDept) {
-    vizDept.innerHTML = '';
-    const all = document.createElement('option');
-    all.value = '';
-    all.textContent = 'All departments';
-    vizDept.appendChild(all);
-    (state.ref.departments || []).forEach(d => {
+  function renderOptions(selectEl, items, opts = {}) {
+    if (!selectEl) return;
+    const { placeholder = '-', valueKey = null, labelKey = null } = opts;
+    selectEl.innerHTML = '';
+    const ph = document.createElement('option'); ph.value = ''; ph.textContent = placeholder; selectEl.appendChild(ph);
+    (items || []).forEach((item) => {
       const opt = document.createElement('option');
-      opt.value = d;
-      opt.textContent = d;
-      vizDept.appendChild(opt);
+      opt.value = valueKey ? String(item[valueKey] ?? '') : String(item ?? '');
+      opt.textContent = labelKey ? String(item[labelKey] ?? '') : String(item ?? '');
+      selectEl.appendChild(opt);
     });
   }
 
-  // Viz additional filters (optional)
-  const renderVizList = (id, labelAll, items) => {
-    const el = $(id);
-    if (!el) return;
-    el.innerHTML = '';
-    const all = document.createElement('option');
-    all.value = '';
-    all.textContent = labelAll;
-    el.appendChild(all);
-    (items || []).forEach(v => {
-      const opt = document.createElement('option');
-      opt.value = String(v);
-      opt.textContent = String(v);
-      el.appendChild(opt);
-    });
-  };
+  function uniqueSorted(values) { return Array.from(new Set((values || []).map(v => String(v || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b)); }
+  function renderReferenceData(ref) {
+    state.ref = ref || { departments: [], doctors: [], staff: [], lists: {} };
+    const lists = state.ref.lists || {};
+    renderOptions($('prescribingErrorFrom'), lists.prescribingErrorFrom || [], { placeholder: 'เลือก…' });
+    renderOptions($('consult'), lists.consultResults || [], { placeholder: 'เลือก…' });
+    renderOptions($('errorType'), lists.errorTypes || [], { placeholder: 'เลือก…' });
+    const processList = uniqueSorted([...(lists.medicationReconciliation || []), 'Med Rec Transfer', 'None of Above']);
+    renderOptions($('medicationReconciliation'), processList, { placeholder: 'เลือก…' });
+    renderOptions($('drugGroup'), lists.drugGroups || [], { placeholder: 'เลือก…' });
+    renderOptions($('subclass'), lists.subclasses || [], { placeholder: 'เลือก…' });
+    renderOptions($('severityLevel'), lists.severityLevels || [], { placeholder: 'เลือก…' });
+    renderOptions($('department'), state.ref.departments || [], { placeholder: 'เลือกแผนก…' });
+    renderOptions($('reporter'), (state.ref.staff || []).map(s => ({ value: s.staffId, label: `${s.staffId} - ${s.name}` })), { placeholder: 'เลือกผู้รายงาน…', valueKey: 'value', labelKey: 'label' });
+    renderOptions($('doctorDept'), state.ref.departments || [], { placeholder: '-' });
 
-  renderVizList('vizSource', 'All sources', state.ref.lists?.prescribingErrorFrom || []);
-  renderVizList('vizSeverity', 'All severity', state.ref.lists?.severityLevels || []);
-  renderVizList('vizDrugGroup', 'All drug groups', state.ref.lists?.drugGroups || []);
-  renderVizList('vizSubclass', 'All subclasses', state.ref.lists?.subclasses || []);
-  renderVizList('vizGeneric', 'All generics', state.ref.lists?.generics || []);
+    renderVizList('vizDept', 'All departments', state.ref.departments || []);
+    renderVizList('vizSource', 'All sources', lists.prescribingErrorFrom || []);
+    renderVizList('vizSeverity', 'All severity', lists.severityLevels || []);
+    renderVizList('vizProcess', 'All process', processList);
+    renderVizList('vizDrugGroup', 'All drug groups', lists.drugGroups || []);
+    renderVizList('vizSubclass', 'All subclasses', lists.subclasses || []);
+    renderVizList('vizGeneric', 'All generics', lists.generics || []);
+    renderVizList('vizConsult', 'All consult results', lists.consultResults || []);
+    renderVizList('vizErrorType', 'All error types', lists.errorTypes || []);
+    renderVizList('vizSpecialty', 'All specialties', uniqueSorted((state.ref.doctors || []).map(d => d.specialty)));
+    renderVizList('vizDoctor', 'All doctors', uniqueSorted((state.ref.doctors || []).map(d => d.name)));
+    renderVizList('vizDoctorType', 'All doctor types', uniqueSorted((state.ref.doctors || []).map(d => d.type)));
+  }
+  function renderVizList(id, labelAll, items) { renderOptions($(id), items || [], { placeholder: labelAll }); }
 
-  renderVizList('vizConsult', 'All consult results', state.ref.lists?.consultResults || []);
-  renderVizList('vizErrorType', 'All error types', state.ref.lists?.errorTypes || []);
-
-  const specialties = Array.from(new Set((state.ref.doctors || []).map(d => String(d.specialty || '').trim()).filter(Boolean))).sort();
-  renderVizList('vizSpecialty', 'All specialties', specialties);
-
-  const doctors = Array.from(new Set((state.ref.doctors || []).map(d => String(d.name || '').trim()).filter(Boolean))).sort();
-  renderVizList('vizDoctor', 'All doctors', doctors);
-
-  const doctorTypes = Array.from(new Set((state.ref.doctors || []).map(d => String(d.type || '').trim()).filter(Boolean))).sort();
-  renderVizList('vizDoctorType', 'All doctor types', doctorTypes);
-
-  // Doctor modal dept list
-  renderOptions($('doctorDept'), state.ref.departments || [], { placeholder: '-' });
-}
-
-async function loadReferenceData() {
-  setText('lastSync', 'Loading…');
-  setApiStatus_('Connecting…', 'secondary');
-  const ref = await apiGet('getReferenceData');
-  renderReferenceData_(ref);
-  setText('lastSync', fmtDateTime(new Date()));
-  setApiStatus_('Connected', 'success');
-}
-
-// ---------------- Report form ----------------
-
-function resetReportForm() {
-  // Clear all user-entered fields after successful submit (or when user clicks reset).
-  try { $('reportForm')?.reset(); } catch (_) {}
-
-  // Explicit clear (for fields that may be outside form defaults / dynamically populated).
-  [
-    'prescribingErrorFrom','hn','eventDate','eventTime','department',
-    'doctorSearch','specialty','doctorType','errorDetails','consult',
-    'errorType','medicationReconciliation','reporter','drug1','drug2',
-    'drugGroup','subclass','severityLevel'
-  ].forEach((id) => {
-    const el = $(id);
-    if (!el) return;
-    el.value = '';
-  });
-
-  const suggest = $('doctorSuggest');
-  if (suggest) suggest.style.display = 'none';
-
-  state.selectedDoctor = null;
-  state.selectedDrug1 = null;
-  state.selectedDrug2 = null;
-  const d1 = $('drug1Suggest'); if (d1) d1.style.display = 'none';
-  const d2 = $('drug2Suggest'); if (d2) d2.style.display = 'none';
-  // drugGroup is auto-populated from Drug 1 and locked
-  const dg = $('drugGroup'); if (dg) dg.value = '';
-  const sc = $('subclass'); if (sc) sc.value = '';
-
-  // Focus first field for faster data entry
-  $('prescribingErrorFrom')?.focus();
-}
-
-function getReportPayload() {
-  const doctorName = state.selectedDoctor?.name || $('doctorSearch')?.value.trim() || '';
-
-  return {
-    prescribingErrorFrom: $('prescribingErrorFrom')?.value.trim() || '',
-    hn: $('hn')?.value.trim() || '',
-    eventDate: $('eventDate')?.value || '',
-    eventTime: $('eventTime')?.value || '',
-    department: $('department')?.value.trim() || '',
-    doctor: doctorName,
-    specialty: $('specialty')?.value.trim() || '',
-    doctorType: $('doctorType')?.value.trim() || '',
-    errorDetails: $('errorDetails')?.value.trim() || '',
-    consult: $('consult')?.value.trim() || '',
-    errorType: $('errorType')?.value.trim() || '',
-    medicationReconciliation: $('medicationReconciliation')?.value.trim() || '',
-    reporter: $('reporter')?.value.trim() || '',
-    drug1: $('drug1')?.value.trim() || '',
-    drug2: $('drug2')?.value.trim() || '',
-    drugGroup: $('drugGroup')?.value.trim() || '',
-    subclass: $('subclass')?.value.trim() || '',
-    severityLevel: $('severityLevel')?.value.trim() || '',
-  };
-}
-
-function reportClientValidate(payload) {
-  const required = [
-    ['prescribingErrorFrom', 'Prescribing Error จาก'],
-    ['hn', 'HN'],
-    ['eventDate', 'วันที่เกิดเหตุการณ์'],
-    ['eventTime', 'เวลาที่เกิดเหตุการณ์'],
-    ['department', 'Department'],
-    ['doctor', 'รายชื่อแพทย์'],
-    ['errorDetails', 'รายละเอียด'],
-    ['consult', 'Consult'],
-    ['errorType', 'ประเภท'],
-    ['medicationReconciliation', 'Process ที่ตรวจพบ Prescribing Error'],
-    ['reporter', 'ผู้รายงาน'],
-    ['drug1', 'ยา (ตัวที่ 1)'],
-    ['drugGroup', 'กลุ่มของยา'],
-    ['severityLevel', 'Severity'],
-  ];
-
-  const missing = required.filter(([k]) => !String(payload[k] || '').trim());
-  if (missing.length) return `กรอกข้อมูลไม่ครบ: ${missing.map(([,label]) => label).join(', ')}`;
-
-  const hnOk = /^07-\d{2}-\d{6}$/.test(payload.hn);
-  if (!hnOk) return 'HN ไม่ถูกต้อง (ต้องเป็น 07-XX-YYYYYY)';
-
-  return null;
-}
-
-// ---------------- Doctor typeahead ----------------
-
-let doctorSearchTimer = null;
-
-function showDoctorSuggest(items) {
-  const box = $('doctorSuggest');
-  if (!box) return;
-
-  box.innerHTML = '';
-  if (!items.length) {
-    box.style.display = 'none';
-    return;
+  async function loadReferenceData(force = false) {
+    text('lastSync', 'Loading…'); setApiStatus('Connecting…', 'secondary');
+    const ref = await apiGet('getReferenceData', {}, { useCache: !force });
+    renderReferenceData(ref); text('lastSync', fmtDateTime(new Date())); setApiStatus('Connected', 'success');
   }
 
-  items.forEach(d => {
-    const item = document.createElement('div');
-    item.className = 'item';
-    item.innerHTML = `
-      <div class="fw-semibold">${escapeHtml(d.name)}</div>
-      <div class="sub">${escapeHtml(d.department || '-')} • ${escapeHtml(d.specialty || '-')} • ${escapeHtml(d.type || '-')}</div>
-    `;
-    item.addEventListener('click', () => {
-      state.selectedDoctor = d;
-      if ($('doctorSearch')) $('doctorSearch').value = d.name;
-      if ($('specialty')) $('specialty').value = d.specialty || '';
-      if ($('doctorType')) $('doctorType').value = d.type || '';
-      box.style.display = 'none';
-    });
-    box.appendChild(item);
-  });
-
-  box.style.display = 'block';
-}
-
-function doctorQuery(q) {
-  const ref = state.ref;
-  if (!ref?.doctors) return [];
-
-  const query = normalizeKey_(q);
-  if (!query) return [];
-
-  const deptFilter = normalizeKey_($('department')?.value || '');
-
-  // Always keep doctors searchable even if Department naming between
-  // Sheet Department and Sheet Doctor does not match 100%.
-  const all = ref.doctors.filter(d => d && d.name);
-  let list = all;
-  if (deptFilter) {
-    const inDept = all.filter(d => normalizeKey_(d.department) === deptFilter);
-    list = inDept.length ? inDept : all; // fallback when mismatch
+  function getReportPayload() {
+    return {
+      prescribingErrorFrom: $('prescribingErrorFrom')?.value.trim() || '',
+      hn: $('hn')?.value.trim() || '', eventDate: $('eventDate')?.value || '', eventTime: $('eventTime')?.value || '',
+      department: $('department')?.value.trim() || '', doctor: state.selectedDoctor?.name || $('doctorSearch')?.value.trim() || '',
+      specialty: $('specialty')?.value.trim() || '', doctorType: $('doctorType')?.value.trim() || '',
+      errorDetails: $('errorDetails')?.value.trim() || '', consult: $('consult')?.value.trim() || '', errorType: $('errorType')?.value.trim() || '',
+      medicationReconciliation: $('medicationReconciliation')?.value.trim() || '', reporter: $('reporter')?.value.trim() || '',
+      drug1: $('drug1')?.value.trim() || '', drug2: $('drug2')?.value.trim() || '',
+      drugGroup: $('drugGroup')?.value.trim() || '', subclass: $('subclass')?.value.trim() || '', severityLevel: $('severityLevel')?.value.trim() || '',
+      clientVersion: CONFIG.VERSION, userAgent: navigator.userAgent
+    };
+  }
+  function validateReport(p) {
+    const required = [['prescribingErrorFrom','Prescribing Error จาก'],['hn','HN'],['eventDate','วันที่เกิดเหตุการณ์'],['eventTime','เวลา'],['department','Department'],['doctor','รายชื่อแพทย์'],['errorDetails','รายละเอียด'],['consult','Consult'],['errorType','ประเภท'],['medicationReconciliation','Process'],['reporter','ผู้รายงาน'],['drug1','ยา 1'],['drugGroup','กลุ่มยา'],['severityLevel','Severity']];
+    const missing = required.filter(([k]) => !String(p[k] || '').trim()).map(([, label]) => label);
+    if (missing.length) return 'กรอกข้อมูลไม่ครบ: ' + missing.join(', ');
+    if (!/^07-\d{2}-\d{6}$/.test(p.hn)) return 'HN ไม่ถูกต้อง (ต้องเป็น 07-XX-YYYYYY)';
+    return '';
+  }
+  function resetReportForm() {
+    $('reportForm')?.reset();
+    ['prescribingErrorFrom','hn','eventDate','eventTime','department','doctorSearch','specialty','doctorType','errorDetails','consult','errorType','medicationReconciliation','reporter','drug1','drug2','drugGroup','subclass','severityLevel'].forEach(id => { const el = $(id); if (el) el.value = ''; });
+    ['doctorSuggest','drug1Suggest','drug2Suggest'].forEach(id => { const el = $(id); if (el) el.style.display = 'none'; });
+    state.selectedDoctor = state.selectedDrug1 = state.selectedDrug2 = null;
+    $('prescribingErrorFrom')?.focus();
   }
 
-  const matched = list.filter(d => {
-    const hay = `${d.name} ${d.department || ''} ${d.specialty || ''} ${d.type || ''}`.toLowerCase();
-    return hay.includes(query);
-  });
+  function doctorQuery(q) {
+    const key = normalize(q); if (!key) return [];
+    const dept = normalize($('department')?.value);
+    const doctors = state.ref.doctors || [];
+    let list = dept ? doctors.filter(d => normalize(d.department) === dept) : doctors;
+    if (dept && !list.length) list = doctors;
+    return list.filter(d => normalize(`${d.name} ${d.department} ${d.specialty} ${d.type}`).includes(key)).slice(0, 12);
+  }
+  function showSuggest(boxId, items, render, onSelect) {
+    const box = $(boxId); if (!box) return;
+    box.innerHTML = ''; if (!items || !items.length) { box.style.display = 'none'; return; }
+    items.forEach(item => { const div = document.createElement('div'); div.className = 'item'; div.innerHTML = render(item); div.addEventListener('click', () => { onSelect(item); box.style.display = 'none'; }); box.appendChild(div); });
+    box.style.display = 'block';
+  }
+  function highlight(text, q) { const raw = String(text || ''); const query = String(q || '').trim(); if (!raw || !query) return escapeHtml(raw); return escapeHtml(raw).replace(new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'ig'), m => `<mark>${m}</mark>`); }
 
-  return matched.slice(0, 12);
-}
+  let medIndexPromise = null;
+  async function prefetchMedicationIndex() {
+    if (Array.isArray(state.medIndex)) return state.medIndex;
+    if (medIndexPromise) return medIndexPromise;
+    medIndexPromise = apiGet('getMedicationIndex', {}, { useCache: true }).then(res => {
+      state.medIndex = (res.items || []).map(it => Object.assign({}, it, { search: normalizeSearch(`${it.displayName || ''} ${it.genericName || ''} ${it.brandName || ''} ${it.form || ''}`) }));
+      return state.medIndex;
+    }).catch(() => { state.medIndex = []; return []; });
+    return medIndexPromise;
+  }
+  function searchMedicationLocal(q) {
+    const key = normalizeSearch(q); if (key.length < 2 || !Array.isArray(state.medIndex)) return [];
+    return state.medIndex.map(it => ({ it, score: scoreMedication(it, key) })).filter(x => x.score > 0).sort((a, b) => b.score - a.score).slice(0, 12).map(x => x.it);
+  }
+  function scoreMedication(it, key) {
+    const d = normalizeSearch(it.displayName), g = normalizeSearch(it.genericName), b = normalizeSearch(it.brandName);
+    if (d === key || g === key || b === key) return 1000;
+    if (d.startsWith(key)) return 900; if (g.startsWith(key)) return 860; if (b.startsWith(key)) return 840;
+    if (d.includes(key)) return 720; if (g.includes(key)) return 680; if (b.includes(key)) return 660;
+    if (it.search?.includes(key)) return 520; return 0;
+  }
+  function selectDrug(slot, item) {
+    state[slot === 1 ? 'selectedDrug1' : 'selectedDrug2'] = item;
+    const input = $(slot === 1 ? 'drug1' : 'drug2'); if (input) input.value = item.displayName || '';
+    if (slot === 1) {
+      const dg = $('drugGroup'); const sc = $('subclass');
+      if (dg) { if (![...dg.options].some(o => o.value === (item.drugGroup || ''))) dg.add(new Option(item.drugGroup || '', item.drugGroup || '')); dg.value = item.drugGroup || ''; }
+      if (sc) { if (![...sc.options].some(o => o.value === (item.subclass || ''))) sc.add(new Option(item.subclass || '', item.subclass || '')); sc.value = item.subclass || ''; }
+    }
+  }
 
-// ---------------- Medication typeahead (Drug 1 / Drug 2) ----------------
-// Search from Sheet: Medication (GenericName, BrandName, Form, DisplayName, DrugGroup)
-// Requirements:
-// - User can search by generic or brand
-// - Display using DisplayName
-// - DrugGroup auto-filled from Drug 1 and locked (system-filled)
-
-function normalizeSearch_(value) {
-  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
-}
-
-// Medication search UX/performance tuning
-const MED_SEARCH_CFG_ = {
-  // Local (prefetched) search can start earlier without server cost.
-  minCharsLocal: 2,
-  // Remote (fallback) search: protect Apps Script from heavy scanning on very short queries.
-  minCharsRemote: 3,
-  // With local search, we can respond faster.
-  debounceMs: 220,
-  // More results improves usability (still small enough to render quickly).
-  limit: 12,
-  // Cache size for remote query results.
-  cacheMax: 180,
-
-  // Prefetch medication index once per session (triggered on focus).
-  prefetchOnFocus: true,
-  // Optional: cap rows returned from server (0 = all).
-  prefetchMax: 0,
-};
-
-// Simple LRU-ish cache (insertion order) for medication queries.
-// Cache helps reduce round-trips to Apps Script (network + cold-start cost).
-const medSearchCache_ = new Map();
-let lastMedQuery_ = '';
-let lastMedItems_ = [];
-
-// Prefetched medication index for client-side search (dramatically reduces API calls).
-let medIndex_ = null;
-let medIndexBuster_ = '0';
-let medIndexPromise_ = null;
-
-async function prefetchMedicationIndex_({ silent = true } = {}) {
-  if (Array.isArray(medIndex_) && medIndex_.length) return medIndex_;
-  if (medIndexPromise_) return medIndexPromise_;
-
-  medIndexPromise_ = (async () => {
+  function getVizParams() {
+    return {
+      startDate: $('vizStart')?.value || '', endDate: $('vizEnd')?.value || '', department: $('vizDept')?.value || '',
+      source: $('vizSource')?.value || '', severity: $('vizSeverity')?.value || '', process: $('vizProcess')?.value || '',
+      drugGroup: $('vizDrugGroup')?.value || '', subclass: $('vizSubclass')?.value || '', generic: $('vizGeneric')?.value || '',
+      consult: $('vizConsult')?.value || '', errorType: $('vizErrorType')?.value || '', specialty: $('vizSpecialty')?.value || '',
+      doctor: $('vizDoctor')?.value || '', doctorType: $('vizDoctorType')?.value || ''
+    };
+  }
+  async function loadVisualization(force = false) {
+    const btn = $('btnRefreshViz'); if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
     try {
-      const params = {};
-      if (MED_SEARCH_CFG_.prefetchMax && Number(MED_SEARCH_CFG_.prefetchMax) > 0) params.max = String(MED_SEARCH_CFG_.prefetchMax);
-
-      const res = await apiGet('getMedicationIndex', params);
-      const items = Array.isArray(res?.items) ? res.items : [];
-      medIndexBuster_ = String(res?.buster || '0').trim() || '0';
-
-      // Normalize once to avoid per-keystroke overhead.
-      medIndex_ = items
-        .filter(Boolean)
-        .map(it => ({
-          displayName: String(it.displayName || '').trim(),
-          displayKey: String(it.displayKey || '').trim() || normalizeSearch_(it.displayName),
-          drugGroup: String(it.drugGroup || '').trim(),
-          subclass: String(it.subclass || '').trim(),
-          genericName: String(it.genericName || '').trim(),
-          genericKey: String(it.genericKey || '').trim() || normalizeSearch_(it.genericName),
-          brandName: String(it.brandName || '').trim(),
-          brandKey: String(it.brandKey || '').trim() || normalizeSearch_(it.brandName),
-          form: String(it.form || '').trim(),
-          search: String(it.search || '').trim() || normalizeSearch_(`${it.displayName || ''} ${it.genericName || ''} ${it.brandName || ''} ${it.form || ''}`),
-        }))
-        .filter(x => x && x.displayName);
-
-      return medIndex_;
-    } catch (e) {
-      medIndex_ = null;
-      if (!silent) toast('โหลดรายการยาไม่สำเร็จ (จะใช้การค้นหาแบบออนไลน์แทน)', 'warning');
-      return null;
-    } finally {
-      // Allow retry if it failed
-      if (!Array.isArray(medIndex_) || !medIndex_.length) medIndexPromise_ = null;
-    }
-  })();
-
-  return medIndexPromise_;
-}
-
-function scoreMedication_(it, qKey) {
-  const dk = it.displayKey || normalizeSearch_(it.displayName);
-  const gk = it.genericKey || normalizeSearch_(it.genericName);
-  const bk = it.brandKey || normalizeSearch_(it.brandName);
-
-  if (dk && dk === qKey) return 1000;
-  if (gk && gk === qKey) return 980;
-  if (bk && bk === qKey) return 960;
-
-  if (dk && dk.indexOf(qKey) === 0) return 900;
-  if (gk && gk.indexOf(qKey) === 0) return 860;
-  if (bk && bk.indexOf(qKey) === 0) return 840;
-
-  if (dk && dk.indexOf(qKey) !== -1) return 720;
-  if (gk && gk.indexOf(qKey) !== -1) return 680;
-  if (bk && bk.indexOf(qKey) !== -1) return 660;
-
-  if (it.search && it.search.indexOf(qKey) !== -1) return 520;
-  return 0;
-}
-
-function searchMedicationLocal_(q) {
-  const query = String(q || '').trim();
-  const key = normalizeSearch_(query);
-  if (key.length < MED_SEARCH_CFG_.minCharsLocal) return [];
-  if (!Array.isArray(medIndex_) || !medIndex_.length) return null;
-
-  const limit = MED_SEARCH_CFG_.limit;
-  const top = [];
-
-  for (let i = 0; i < medIndex_.length; i++) {
-    const it = medIndex_[i];
-    if (!it || !it.search || it.search.indexOf(key) === -1) continue;
-    const score = scoreMedication_(it, key);
-    if (!score) continue;
-
-    if (top.length < limit) {
-      top.push({ score, it });
-      continue;
-    }
-
-    // Replace the worst item if this is better
-    let worst = 0;
-    for (let j = 1; j < top.length; j++) {
-      if (top[j].score < top[worst].score) worst = j;
-    }
-    if (score > top[worst].score) top[worst] = { score, it };
+      const data = await apiGet('getVisualization', getVizParams(), { useCache: !force });
+      renderVisualization(data || {});
+    } finally { if (btn) { btn.disabled = false; btn.textContent = 'รีเฟรช'; } }
   }
-
-  top.sort((a, b) => b.score - a.score);
-  return top.map(x => ({
-    displayName: x.it.displayName,
-    drugGroup: x.it.drugGroup,
-    subclass: x.it.subclass,
-    genericName: x.it.genericName,
-    brandName: x.it.brandName,
-    form: x.it.form,
-  }));
-}
-
-function escapeRegExp_(s) {
-  return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function highlightMatchHtml_(text, q) {
-  const raw = String(text || '');
-  const query = String(q || '').trim();
-  if (!raw || !query) return escapeHtml(raw);
-
-  // Highlight on the raw text (case-insensitive). This is purely UI.
-  const re = new RegExp(escapeRegExp_(query), 'ig');
-  let out = '';
-  let last = 0;
-  let m;
-  while ((m = re.exec(raw)) !== null) {
-    const start = m.index;
-    const end = start + m[0].length;
-    out += escapeHtml(raw.slice(last, start));
-    out += `<mark>${escapeHtml(raw.slice(start, end))}</mark>`;
-    last = end;
-    if (re.lastIndex === m.index) re.lastIndex++; // avoid zero-width loop
+  function renderVisualization(data) {
+    const metrics = data.metrics || {};
+    state.vizRows = data.rows || [];
+    text('metricTotal', String(metrics.total || 0));
+    text('metricThisMonth', String(metrics.thisMonth || 0));
+    text('metricConsultAdjusted', `${Number(metrics.consultAdjustedPct || 0).toFixed(1)}%`);
+    text('metricFullTime', `${Number(metrics.fullTimePct || 0).toFixed(1)}%`);
+    const ag = data.aggregates || {};
+    barChart('chartDept', ag.byDepartment || [], 'label', 'count', { indexAxis: 'y', limit: 20 });
+    doughnutChart('chartSeverity', ag.bySeverity || [], 'label', 'count');
+    barChart('chartProcess', ag.byProcess || [], 'label', 'count', { indexAxis: 'y', limit: 12 });
+    lineChart('chartMonth', ag.byMonth || [], 'label', 'count');
+    barChart('chartDrugGroup', ag.byDrugGroup || [], 'label', 'count', { indexAxis: 'y', limit: 20 });
+    barChart('chartDoctor', ag.byDoctor || [], 'label', 'count', { indexAxis: 'y', limit: 20 });
+    renderTwoSeriesBars('consultBySourceBars', ag.consultBySource || [], 'adjusted', 'notAdjusted', 'ปรับแผน', 'ยืนยันเดิม');
+    renderTwoSeriesBars('errorTypeBySourceBars', ag.errorTypeBySource || [], 'medRec', 'other', 'Med Rec/Home Med', 'Other');
   }
-  out += escapeHtml(raw.slice(last));
-  return out;
-}
-
-function getMedCache_(key) {
-  if (!key) return null;
-  if (!medSearchCache_.has(key)) return null;
-  const v = medSearchCache_.get(key);
-  // Refresh insertion order
-  medSearchCache_.delete(key);
-  medSearchCache_.set(key, v);
-  return v;
-}
-
-function putMedCache_(key, items) {
-  if (!key) return;
-  medSearchCache_.set(key, items);
-  while (medSearchCache_.size > MED_SEARCH_CFG_.cacheMax) {
-    const oldest = medSearchCache_.keys().next().value;
-    medSearchCache_.delete(oldest);
+  function chartBase(id) {
+    const canvas = $(id); if (!canvas || !window.Chart) return null;
+    if (state.charts[id]) { state.charts[id].destroy(); state.charts[id] = null; }
+    return canvas.getContext('2d');
   }
-}
-
-function ensureSelectOption_(selectEl, value) {
-  if (!selectEl) return;
-  const v = String(value || '').trim();
-  if (!v) return;
-  const exists = Array.from(selectEl.options || []).some(o => String(o.value || '').trim() === v);
-  if (exists) return;
-  const opt = document.createElement('option');
-  opt.value = v;
-  opt.textContent = v;
-  selectEl.appendChild(opt);
-}
-
-function setSubclassFromDrug1_(item) {
-  const scEl = $('subclass');
-  if (!scEl) return;
-  const sc = String(item?.subclass || '').trim();
-  scEl.value = sc;
-}
-
-function setDrugGroupFromDrug1_(item) {
-  const dgEl = $('drugGroup');
-  if (!dgEl) return;
-  const group = String(item?.drugGroup || '').trim();
-  if (!group) {
-    dgEl.value = '';
-    setSubclassFromDrug1_(null);
-    return;
+  function barChart(id, rows, labelKey, valueKey, opts = {}) {
+    const ctx = chartBase(id); if (!ctx) return;
+    const data = (rows || []).slice(0, opts.limit || 20);
+    state.charts[id] = new Chart(ctx, { type: 'bar', data: { labels: data.map(r => r[labelKey] || '-'), datasets: [{ label: 'Reports', data: data.map(r => Number(r[valueKey]) || 0) }] }, options: { responsive: true, maintainAspectRatio: false, indexAxis: opts.indexAxis || 'x', plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true }, y: { beginAtZero: true } } } });
   }
-  ensureSelectOption_(dgEl, group);
-  dgEl.value = group;
-  setSubclassFromDrug1_(item);
-}
-
-function hideMedicationSuggest_(boxEl) {
-  if (!boxEl) return;
-  boxEl.style.display = 'none';
-  boxEl.__pe_items = [];
-  boxEl.__pe_activeIndex = -1;
-  boxEl.__pe_onSelect = null;
-}
-
-function setMedicationActive_(boxEl, index) {
-  if (!boxEl) return;
-  const nodes = Array.from(boxEl.querySelectorAll('.item'));
-  const max = nodes.length - 1;
-  const idx = Math.max(-1, Math.min(Number(index) || 0, max));
-  nodes.forEach((n, i) => n.classList.toggle('active', i === idx));
-  boxEl.__pe_activeIndex = idx;
-
-  // Ensure active item is visible
-  if (idx >= 0 && nodes[idx]) {
-    const el = nodes[idx];
-    const top = el.offsetTop;
-    const bottom = top + el.offsetHeight;
-    if (top < boxEl.scrollTop) boxEl.scrollTop = top;
-    else if (bottom > boxEl.scrollTop + boxEl.clientHeight) boxEl.scrollTop = bottom - boxEl.clientHeight;
+  function doughnutChart(id, rows, labelKey, valueKey) {
+    const ctx = chartBase(id); if (!ctx) return;
+    const data = rows || [];
+    state.charts[id] = new Chart(ctx, { type: 'doughnut', data: { labels: data.map(r => r[labelKey] || '-'), datasets: [{ data: data.map(r => Number(r[valueKey]) || 0) }] }, options: { responsive: true, maintainAspectRatio: false } });
   }
-}
-
-function selectMedicationActive_(boxEl) {
-  if (!boxEl) return false;
-  const items = Array.isArray(boxEl.__pe_items) ? boxEl.__pe_items : [];
-  const idx = Number(boxEl.__pe_activeIndex);
-  const fn = boxEl.__pe_onSelect;
-  if (!fn || !(idx >= 0 && idx < items.length)) return false;
-  try { fn(items[idx]); } catch (_) {}
-  return true;
-}
-
-function showMedicationSuggest_(boxEl, items, onSelect, q) {
-  if (!boxEl) return;
-  boxEl.innerHTML = '';
-
-  const list = Array.isArray(items) ? items.filter(Boolean) : [];
-  if (!list.length) {
-    hideMedicationSuggest_(boxEl);
-    return;
+  function lineChart(id, rows, labelKey, valueKey) {
+    const ctx = chartBase(id); if (!ctx) return;
+    const data = rows || [];
+    state.charts[id] = new Chart(ctx, { type: 'line', data: { labels: data.map(r => r[labelKey] || '-'), datasets: [{ label: 'Reports', data: data.map(r => Number(r[valueKey]) || 0), tension: .25 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } } });
   }
-
-  boxEl.__pe_items = list;
-  boxEl.__pe_onSelect = onSelect;
-  boxEl.__pe_activeIndex = -1;
-
-  const query = String(q || '').trim();
-
-  list.forEach((m, idx) => {
-    const display = String(m.displayName || '').trim();
-    if (!display) return;
-
-    const g = String(m.genericName || '').trim();
-    const b = String(m.brandName || '').trim();
-    const f = String(m.form || '').trim();
-    const dg = String(m.drugGroup || '').trim();
-    const sc = String(m.subclass || '').trim();
-
-    const line2Parts = [
-      g ? `Gen: <span class="text-dark">${highlightMatchHtml_(g, query)}</span>` : '',
-      b ? `Brand: <span class="text-dark">${highlightMatchHtml_(b, query)}</span>` : '',
-      f ? `Form: <span class="text-dark">${highlightMatchHtml_(f, query)}</span>` : '',
-    ].filter(Boolean);
-
-    const item = document.createElement('div');
-    item.className = 'item';
-    item.setAttribute('data-index', String(idx));
-    item.innerHTML = `
-      <div class="d-flex align-items-start justify-content-between gap-2">
-        <div class="fw-semibold">${highlightMatchHtml_(display, query)}</div>
-        <div class="app-suggest-badges">
-          ${dg ? `<span class="badge rounded-pill text-bg-primary">${escapeHtml(dg)}</span>` : ''}
-          ${sc ? `<span class="badge rounded-pill text-bg-danger">${escapeHtml(sc)}</span>` : ''}
-        </div>
-      </div>
-      <div class="sub">${line2Parts.join(' • ')}</div>
-    `;
-
-    item.addEventListener('mouseenter', () => setMedicationActive_(boxEl, idx));
-    item.addEventListener('mousedown', (ev) => {
-      // Prevent input blur before click handler
-      ev.preventDefault();
-    });
-    item.addEventListener('click', () => {
-      setMedicationActive_(boxEl, idx);
-      onSelect(m);
-    });
-
-    boxEl.appendChild(item);
-  });
-
-  boxEl.style.display = 'block';
-  setMedicationActive_(boxEl, 0);
-}
-
-async function searchMedicationRemote_(q) {
-  const query = String(q || '').trim();
-  const key = normalizeSearch_(query);
-  if (key.length < MED_SEARCH_CFG_.minCharsRemote) return [];
-
-  const cached = getMedCache_(key);
-  if (cached) return cached;
-
-  const res = await apiGet('searchMedication', { q: query, limit: MED_SEARCH_CFG_.limit });
-  const items = Array.isArray(res?.items) ? res.items : (Array.isArray(res) ? res : []);
-  putMedCache_(key, items);
-  return items;
-}
-
-async function searchMedication_(q) {
-  // Prefer local (prefetched) search. If index is not available yet, fall back to remote.
-  const local = searchMedicationLocal_(q);
-  if (Array.isArray(local)) return local;
-  return searchMedicationRemote_(q);
-}
-
-function wireMedicationTypeahead_(inputId, suggestId, { primary = false } = {}) {
-  const input = $(inputId);
-  const box = $(suggestId);
-  if (!input || !box) return;
-
-  let timer = null;
-  let reqSeq = 0;
-
-  // Dismiss suggestions when clicking outside
-  document.addEventListener('click', (ev) => {
-    const t = ev.target;
-    if (t === input || box.contains(t)) return;
-    hideMedicationSuggest_(box);
-  });
-
-  // Keyboard navigation: ArrowUp/Down, Enter, Esc
-  input.addEventListener('keydown', (ev) => {
-    if (box.style.display !== 'block') return;
-    if (ev.key === 'ArrowDown') {
-      ev.preventDefault();
-      setMedicationActive_(box, (Number(box.__pe_activeIndex) || 0) + 1);
-    } else if (ev.key === 'ArrowUp') {
-      ev.preventDefault();
-      setMedicationActive_(box, (Number(box.__pe_activeIndex) || 0) - 1);
-    } else if (ev.key === 'Enter') {
-      const ok = selectMedicationActive_(box);
-      if (ok) {
-        ev.preventDefault();
-        hideMedicationSuggest_(box);
-      }
-    } else if (ev.key === 'Escape') {
-      ev.preventDefault();
-      hideMedicationSuggest_(box);
-    }
-  });
-
-  // Preload medication index once the user is about to search (keeps UX fast without extra typing rules).
-  if (MED_SEARCH_CFG_.prefetchOnFocus) {
-    input.addEventListener('focus', () => {
-      // silent warm-up; results are still available via remote fallback if this fails
-      prefetchMedicationIndex_({ silent: true });
+  function renderTwoSeriesBars(id, rows, aKey, bKey, aLabel, bLabel) {
+    const el = $(id); if (!el) return;
+    el.innerHTML = `<div class="d-flex gap-3 small mb-2"><span><i class="badge" style="background:#007f8f">&nbsp;</i> ${escapeHtml(aLabel)}</span><span><i class="badge" style="background:#78cdd1">&nbsp;</i> ${escapeHtml(bLabel)}</span></div>`;
+    if (!rows || !rows.length) { el.innerHTML += '<div class="text-muted small">ไม่พบข้อมูล</div>'; return; }
+    rows.forEach(r => {
+      const a = Number(r[aKey]) || 0, b = Number(r[bKey]) || 0, total = a + b;
+      const pa = total ? (a / total * 100) : 0;
+      const div = document.createElement('div'); div.className = 'row-item';
+      div.innerHTML = `<div class="label-line"><strong>${escapeHtml(r.source || '-')}</strong><span>${total}</span></div><div class="bar"><span class="seg-a" style="width:${pa}%"></span><span class="seg-b" style="width:${100 - pa}%"></span></div>`;
+      el.appendChild(div);
     });
   }
-
-  input.addEventListener('input', (ev) => {
-    const q = ev.target.value || '';
-
-    if (primary) {
-      // If user edits after selection, clear selection and drug group
-      if (state.selectedDrug1 && normalizeSearch_(q) !== normalizeSearch_(state.selectedDrug1.displayName)) {
-        state.selectedDrug1 = null;
-        setDrugGroupFromDrug1_(null);
-      }
-      // Don't re-query when matches selection exactly
-      if (state.selectedDrug1 && normalizeSearch_(q) === normalizeSearch_(state.selectedDrug1.displayName)) {
-        box.style.display = 'none';
-        return;
-      }
-    } else {
-      if (state.selectedDrug2 && normalizeSearch_(q) !== normalizeSearch_(state.selectedDrug2.displayName)) {
-        state.selectedDrug2 = null;
-      }
-      if (state.selectedDrug2 && normalizeSearch_(q) === normalizeSearch_(state.selectedDrug2.displayName)) {
-        box.style.display = 'none';
-        return;
-      }
-    }
-
-    clearTimeout(timer);
-    timer = setTimeout(async () => {
-      const seq = ++reqSeq;
-      try {
-        const norm = normalizeSearch_(q);
-
-        if (!norm) {
-          hideMedicationSuggest_(box);
-          return;
-        }
-
-        // Local (prefetched) search keeps UX snappy without extra API calls.
-        if (norm.length < MED_SEARCH_CFG_.minCharsLocal) {
-          box.innerHTML = `<div class="item text-muted small">พิมพ์อย่างน้อย ${MED_SEARCH_CFG_.minCharsLocal} ตัวอักษร</div>`;
-          box.style.display = 'block';
-          return;
-        }
-
-        // Ensure medication index is ready. We load it on first focus / first use.
-        if (!Array.isArray(medIndex_) || !medIndex_.length) {
-          box.innerHTML = '<div class="item text-muted small">กำลังโหลดรายการยา…</div>';
-          box.style.display = 'block';
-          await prefetchMedicationIndex_({ silent: true });
-          if (seq !== reqSeq) return; // ignore stale
-
-          // If prefetch fails and query is still short, advise remote minimum.
-          if ((!Array.isArray(medIndex_) || !medIndex_.length) && norm.length < MED_SEARCH_CFG_.minCharsRemote) {
-            box.innerHTML = `<div class="item text-muted small">โหลดรายการยาไม่สำเร็จ — กรุณาพิมพ์อย่างน้อย ${MED_SEARCH_CFG_.minCharsRemote} ตัวอักษร</div>`;
-            box.style.display = 'block';
-            return;
-          }
-        }
-
-        // Immediate feedback for remote fallback (rare)
-        if (!Array.isArray(medIndex_) || !medIndex_.length) {
-          box.innerHTML = '<div class="item text-muted small">กำลังค้นหา…</div>';
-          box.style.display = 'block';
-        }
-        // Fast path: local refine when user continues typing and previous result set was not truncated
-        let items;
-        if (
-          lastMedQuery_ &&
-          norm.startsWith(lastMedQuery_) &&
-          Array.isArray(lastMedItems_) &&
-          lastMedItems_.length > 0 &&
-          lastMedItems_.length < MED_SEARCH_CFG_.limit
-        ) {
-          const qKey = norm;
-          items = lastMedItems_.filter(m => {
-            const hay = normalizeSearch_(`${m.displayName || ''} ${m.genericName || ''} ${m.brandName || ''} ${m.form || ''}`);
-            return hay.includes(qKey);
-          });
-        } else {
-          items = await searchMedication_(q);
-        }
-
-        if (seq !== reqSeq) return; // ignore stale
-
-        lastMedQuery_ = norm;
-        lastMedItems_ = Array.isArray(items) ? items : [];
-
-        showMedicationSuggest_(box, items, (item) => {
-          const display = String(item?.displayName || '').trim();
-          if (!display) return;
-
-          input.value = display;
-          if (primary) {
-            state.selectedDrug1 = item;
-            setDrugGroupFromDrug1_(item);
-          } else {
-            state.selectedDrug2 = item;
-          }
-          hideMedicationSuggest_(box);
-        }, q);
-      } catch (_) {
-        // silently hide suggestions; user can still type manually if needed
-        hideMedicationSuggest_(box);
-      }
-    }, MED_SEARCH_CFG_.debounceMs);
-  });
-}
-
-// ---------------- Admin verification ----------------
-
-async function validateAdmin() {
-  const staffId = $('adminStaffId')?.value.trim() || '';
-  if (!staffId) {
-    state.admin = { staffId: '', role: 'Not verified', ok: false, name: '' };
-    if ($('adminBadge')) $('adminBadge').className = 'badge rounded-pill text-bg-secondary';
-    setText('adminBadge', 'Not verified');
-    toggleManageControls();
-    return;
+  function exportXlsx() {
+    if (!window.XLSX) return toast('ไม่พบ XLSX library', 'error');
+    const rows = state.vizRows || [];
+    if (!rows.length) return toast('ไม่มีข้อมูลสำหรับ Export', 'warning');
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'PrescribingErrors');
+    XLSX.writeFile(wb, `prescribing-error-${new Date().toISOString().slice(0,10)}.xlsx`);
   }
 
-  try {
-    const data = await apiGet('validateStaff', { staffId });
-    state.admin = { staffId, role: data.role, ok: data.ok, name: data.name || '' };
-
-    if (data.ok && data.role === 'Admin') {
-      if ($('adminBadge')) $('adminBadge').className = 'badge rounded-pill text-bg-success';
-      setText('adminBadge', `Admin: ${data.name || staffId}`);
-      toast('ยืนยันสิทธิ์ Admin สำเร็จ', 'success');
-    } else if (data.ok) {
-      if ($('adminBadge')) $('adminBadge').className = 'badge rounded-pill text-bg-warning';
-      setText('adminBadge', `User: ${data.name || staffId}`);
-      toast('StaffID นี้เป็น User (ไม่มีสิทธิ์แก้ไขข้อมูล)', 'danger');
-    } else {
-      if ($('adminBadge')) $('adminBadge').className = 'badge rounded-pill text-bg-danger';
-      setText('adminBadge', 'Not found');
-      toast('ไม่พบ StaffID', 'danger');
-    }
-
-    toggleManageControls();
-  } catch (e) {
-    toast(e.message, 'danger');
+  function renderManageData(data) {
+    state.manage = data || { doctors: [], staff: [], departments: [] };
+    const doctorBody = $('doctorTableBody'); if (doctorBody) doctorBody.innerHTML = (state.manage.doctors || []).map(d => `<tr><td>${escapeHtml(d.name)}</td><td>${escapeHtml(d.department)}</td><td>${escapeHtml(d.specialty)}</td><td>${escapeHtml(d.type)}</td><td class="text-end"><button class="btn btn-sm btn-outline-primary" data-edit-doctor="${escapeHtml(d.name)}">Edit</button> <button class="btn btn-sm btn-outline-danger" data-del-doctor="${escapeHtml(d.name)}">Delete</button></td></tr>`).join('') || '<tr><td colspan="5" class="text-muted">No data</td></tr>';
+    const staffBody = $('staffTableBody'); if (staffBody) staffBody.innerHTML = (state.manage.staff || []).map(s => `<tr><td>${escapeHtml(s.staffId)}</td><td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.role)}</td><td class="text-end"><button class="btn btn-sm btn-outline-primary" data-edit-staff="${escapeHtml(s.staffId)}">Edit</button> <button class="btn btn-sm btn-outline-danger" data-del-staff="${escapeHtml(s.staffId)}">Delete</button></td></tr>`).join('') || '<tr><td colspan="4" class="text-muted">No data</td></tr>';
+    const depBody = $('departmentTableBody'); if (depBody) depBody.innerHTML = (state.manage.departments || []).map(d => `<tr><td>${escapeHtml(d)}</td><td class="text-end"><button class="btn btn-sm btn-outline-primary" data-edit-dept="${escapeHtml(d)}">Edit</button> <button class="btn btn-sm btn-outline-danger" data-del-dept="${escapeHtml(d)}">Delete</button></td></tr>`).join('') || '<tr><td colspan="2" class="text-muted">No data</td></tr>';
   }
-}
+  async function loadManageData() { const data = await apiGet('getManageData', {}, { useCache: false }); renderManageData(data); }
+  function requireAdmin() { if (!state.admin.ok) { toast('กรุณาตรวจสอบ Admin StaffID ก่อน', 'warning'); return false; } return true; }
+  function updateAdminBadge() { const el = $('adminBadge'); if (!el) return; el.className = 'badge align-self-center ' + (state.admin.ok ? 'text-bg-success' : 'text-bg-secondary'); el.textContent = state.admin.ok ? `Admin: ${state.admin.name || state.admin.staffId}` : 'Not verified'; }
 
-function requireAdminClient() {
-  if (!state.admin.ok) throw new Error('กรุณาตรวจสอบ Admin StaffID ก่อน');
-  if (state.admin.role !== 'Admin') throw new Error('สิทธิ์ไม่เพียงพอ: Role ไม่ใช่ Admin');
-}
+  function attachEvents() {
+    document.querySelectorAll('[data-view-link]').forEach(a => a.addEventListener('click', e => { e.preventDefault(); showView(a.dataset.viewLink); }));
+    $('btnSaveApiUrl')?.addEventListener('click', () => setApiUrl($('apiUrlInput')?.value || ''));
+    $('btnPing')?.addEventListener('click', async () => { try { const h = await apiGet('health', {}, { useCache: false }); setApiStatus('Connected', 'success'); toast(`API OK: ${h.version || CONFIG.VERSION}`, 'success'); } catch (e) { setApiStatus('Failed', 'danger'); toast(e.message, 'error'); } });
+    $('btnRefreshRef')?.addEventListener('click', async () => { clearApiCache(); await loadReferenceData(true); toast('รีเฟรชข้อมูลอ้างอิงแล้ว', 'success'); });
+    $('btnResetReport')?.addEventListener('click', resetReportForm);
+    $('reportForm')?.addEventListener('submit', async (e) => { e.preventDefault(); const p = getReportPayload(); const err = validateReport(p); if (err) return toast(err, 'warning'); const btn = $('btnSubmitReport'); try { if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; } await apiPost('submitReport', p); toast('บันทึกรายงานสำเร็จ', 'success'); resetReportForm(); } catch (ex) { toast(ex.message || 'บันทึกไม่สำเร็จ', 'error'); } finally { if (btn) { btn.disabled = false; btn.textContent = 'บันทึก'; } } });
 
-function toggleManageControls() {
-  const can = state.admin.ok && state.admin.role === 'Admin';
+    let doctorTimer; $('doctorSearch')?.addEventListener('input', () => { clearTimeout(doctorTimer); doctorTimer = setTimeout(() => { const q = $('doctorSearch').value; showSuggest('doctorSuggest', doctorQuery(q), d => `<strong>${highlight(d.name, q)}</strong><div class="small text-muted">${escapeHtml(d.department || '-')} • ${escapeHtml(d.specialty || '-')} • ${escapeHtml(d.type || '-')}</div>`, d => { state.selectedDoctor = d; $('doctorSearch').value = d.name || ''; $('specialty').value = d.specialty || ''; $('doctorType').value = d.type || ''; }); }, 120); });
+    $('department')?.addEventListener('change', () => { state.selectedDoctor = null; $('doctorSearch').value = ''; $('specialty').value = ''; $('doctorType').value = ''; });
 
-  // Manage Data buttons
-  ['btnAddDoctor', 'btnAddStaff', 'btnAddDept'].forEach(id => {
-    const el = $(id);
-    if (el) el.disabled = !can;
-  });
+    ['drug1', 'drug2'].forEach((id, idx) => { let timer; const slot = idx + 1; $(id)?.addEventListener('focus', prefetchMedicationIndex); $(id)?.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(async () => { await prefetchMedicationIndex(); const q = $(id).value; showSuggest(id + 'Suggest', searchMedicationLocal(q), it => `<strong>${highlight(it.displayName, q)}</strong><div class="small text-muted">${escapeHtml(it.genericName || '-')} • ${escapeHtml(it.brandName || '-')} • ${escapeHtml(it.drugGroup || '-')}</div>`, it => selectDrug(slot, it)); }, 180); }); });
 
-  // Export .XLSX (Admin only)
-  const ex = $('btnExportXlsx');
-  if (ex) {
-    ex.disabled = !can;
-    ex.title = can ? '' : 'เฉพาะ Admin เท่านั้น';
+    $('btnRefreshViz')?.addEventListener('click', () => loadVisualization(true).catch(e => toast(e.message, 'error')));
+    $('btnApplyViz')?.addEventListener('click', () => loadVisualization(false).catch(e => toast(e.message, 'error')));
+    $('btnResetViz')?.addEventListener('click', () => { ['vizStart','vizEnd','vizDept','vizSource','vizSeverity','vizProcess','vizDrugGroup','vizSubclass','vizGeneric','vizConsult','vizErrorType','vizSpecialty','vizDoctor','vizDoctorType'].forEach(id => { if ($(id)) $(id).value = ''; }); loadVisualization(true).catch(e => toast(e.message, 'error')); });
+    $('btnExportXlsx')?.addEventListener('click', exportXlsx);
+
+    $('btnVerifyAdmin')?.addEventListener('click', async () => { try { const staffId = $('adminStaffId')?.value.trim() || ''; const res = await apiGet('verifyAdmin', { staffId }, { useCache: false }); state.admin = { ok: !!res.ok, staffId, name: res.name || '', role: res.role || '' }; updateAdminBadge(); toast(state.admin.ok ? 'ยืนยัน Admin สำเร็จ' : 'ไม่ใช่ Admin', state.admin.ok ? 'success' : 'warning'); } catch (e) { toast(e.message, 'error'); } });
+    $('btnReloadManage')?.addEventListener('click', () => loadManageData().catch(e => toast(e.message, 'error')));
+    $('btnAddDoctor')?.addEventListener('click', () => openDoctorModal());
+    $('btnAddStaff')?.addEventListener('click', () => openStaffModal());
+    $('btnAddDepartment')?.addEventListener('click', () => openDepartmentModal());
+    $('btnSaveDoctor')?.addEventListener('click', saveDoctor);
+    $('btnSaveStaff')?.addEventListener('click', saveStaff);
+    $('btnSaveDepartment')?.addEventListener('click', saveDepartment);
+    document.addEventListener('click', (e) => handleManageActions(e));
   }
-}
-
-// ---------------- Manage Data ----------------
-
-async function loadManage() {
-  const [docRes, staffRes, deptRes] = await Promise.all([
-    apiGet('listDoctors'),
-    apiGet('listStaff'),
-    apiGet('listDepartments'),
-  ]);
-
-  renderDoctorsTable(docRes.doctors || []);
-  renderStaffTable(staffRes.staff || []);
-  renderDeptTable(deptRes.departments || []);
-
-  // keep typeahead / dropdown data in sync
-  if (!state.ref || !state.ref.lists) {
-    state.ref = await apiGet('getReferenceData');
+  function showView(view) {
+    document.querySelectorAll('.app-view').forEach(el => el.classList.add('d-none'));
+    $(`view-${view}`)?.classList.remove('d-none');
+    document.querySelectorAll('[data-view-link]').forEach(a => a.classList.toggle('active', a.dataset.viewLink === view));
+    if (view === 'manage') loadManageData().catch(e => toast(e.message, 'error'));
+    if (view === 'visualization') loadVisualization(false).catch(e => toast(e.message, 'error'));
   }
-  state.ref.doctors = docRes.doctors || [];
-  state.ref.staff = staffRes.staff || [];
-  state.ref.departments = (deptRes.departments || []).map(d => d.department);
-  renderReferenceData_(state.ref);
-
-  toggleManageControls();
-}
-
-function renderDoctorsTable(doctors) {
-  const tb = $('tblDoctors');
-  if (!tb) return;
-
-  tb.innerHTML = '';
-  doctors.forEach(d => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${escapeHtml(d.name)}</td>
-      <td>${escapeHtml(d.department)}</td>
-      <td>${escapeHtml(d.specialty)}</td>
-      <td>${escapeHtml(d.type)}</td>
-      <td class="text-end">
-        <button class="btn btn-sm btn-outline-secondary me-1" data-act="edit"><i class="fa-regular fa-pen-to-square"></i></button>
-        <button class="btn btn-sm btn-outline-danger" data-act="del"><i class="fa-regular fa-trash-can"></i></button>
-      </td>
-    `;
-
-    tr.querySelector('[data-act="edit"]').addEventListener('click', () => openDoctorModal(d));
-    tr.querySelector('[data-act="del"]').addEventListener('click', () => deleteDoctor(d));
-    tb.appendChild(tr);
-  });
-}
-
-function renderStaffTable(staff) {
-  const tb = $('tblStaff');
-  if (!tb) return;
-
-  tb.innerHTML = '';
-  staff.forEach(s => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${escapeHtml(s.staffId)}</td>
-      <td>${escapeHtml(s.name)}</td>
-      <td><span class="badge text-bg-${s.role === 'Admin' ? 'primary' : 'secondary'}">${escapeHtml(s.role)}</span></td>
-      <td class="text-end">
-        <button class="btn btn-sm btn-outline-secondary me-1" data-act="edit"><i class="fa-regular fa-pen-to-square"></i></button>
-        <button class="btn btn-sm btn-outline-danger" data-act="del"><i class="fa-regular fa-trash-can"></i></button>
-      </td>
-    `;
-
-    tr.querySelector('[data-act="edit"]').addEventListener('click', () => openStaffModal(s));
-    tr.querySelector('[data-act="del"]').addEventListener('click', () => deleteStaff(s));
-    tb.appendChild(tr);
-  });
-}
-
-function renderDeptTable(depts) {
-  const tb = $('tblDept');
-  if (!tb) return;
-
-  tb.innerHTML = '';
-  (depts || []).forEach((d) => {
-    const name = typeof d === 'string' ? d : d.department;
-    const id = typeof d === 'string' ? null : d.id;
-
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${escapeHtml(name)}</td>
-      <td class="text-end">
-        <button class="btn btn-sm btn-outline-secondary me-1" data-act="edit"><i class="fa-regular fa-pen-to-square"></i></button>
-        <button class="btn btn-sm btn-outline-danger" data-act="del"><i class="fa-regular fa-trash-can"></i></button>
-      </td>
-    `;
-
-    tr.querySelector('[data-act="edit"]').addEventListener('click', () => openDeptModal({ id, department: name }));
-    tr.querySelector('[data-act="del"]').addEventListener('click', () => deleteDept({ id, department: name }));
-    tb.appendChild(tr);
-  });
-}
-
-// --- Modals ---
-let modalDoctor, modalStaff, modalDept;
-
-function openDoctorModal(doctor = null) {
-  $('doctorId').value = doctor?.id || '';
-  $('doctorName').value = doctor?.name || '';
-  $('doctorDept').value = doctor?.department || '';
-  $('doctorSpec').value = doctor?.specialty || '';
-  $('doctorTypeModal').value = doctor?.type || '';
-  setText('modalDoctorTitle', doctor ? 'Edit Doctor' : 'Add Doctor');
-  modalDoctor.show();
-}
-
-async function saveDoctor() {
-  requireAdminClient();
-
-  const doc = {
-    id: $('doctorId').value ? Number($('doctorId').value) : undefined,
-    name: $('doctorName').value.trim(),
-    department: $('doctorDept').value.trim(),
-    specialty: $('doctorSpec').value.trim(),
-    type: $('doctorTypeModal').value.trim(),
-  };
-
-  if (!doc.name) throw new Error('Doctor name is required.');
-
-  if (doc.id) {
-    await apiPost('updateDoctor', { adminStaffId: state.admin.staffId, id: doc.id, doctor: doc });
-    toast('แก้ไข Doctor สำเร็จ', 'success');
-  } else {
-    await apiPost('addDoctor', { adminStaffId: state.admin.staffId, doctor: doc });
-    toast('เพิ่ม Doctor สำเร็จ', 'success');
+  function modal(id) { return bootstrap.Modal.getOrCreateInstance($(id)); }
+  function openDoctorModal(d = {}) { $('doctorOriginalName').value = d.name || ''; $('doctorName').value = d.name || ''; $('doctorDept').value = d.department || ''; $('doctorSpecialty').value = d.specialty || ''; $('doctorTypeEdit').value = d.type || ''; modal('doctorModal').show(); }
+  function openStaffModal(s = {}) { $('staffOriginalId').value = s.staffId || ''; $('staffIdEdit').value = s.staffId || ''; $('staffName').value = s.name || ''; $('staffRole').value = s.role || 'User'; modal('staffModal').show(); }
+  function openDepartmentModal(name = '') { $('departmentOriginalName').value = name || ''; $('departmentNameEdit').value = name || ''; modal('departmentModal').show(); }
+  async function saveDoctor() { if (!requireAdmin()) return; await apiPost('saveDoctor', { adminStaffId: state.admin.staffId, originalName: $('doctorOriginalName').value, name: $('doctorName').value.trim(), department: $('doctorDept').value, specialty: $('doctorSpecialty').value.trim(), type: $('doctorTypeEdit').value }); modal('doctorModal').hide(); await loadReferenceData(true); await loadManageData(); toast('บันทึก Doctor แล้ว', 'success'); }
+  async function saveStaff() { if (!requireAdmin()) return; await apiPost('saveStaff', { adminStaffId: state.admin.staffId, originalStaffId: $('staffOriginalId').value, staffId: $('staffIdEdit').value.trim(), name: $('staffName').value.trim(), role: $('staffRole').value }); modal('staffModal').hide(); await loadReferenceData(true); await loadManageData(); toast('บันทึก Staff แล้ว', 'success'); }
+  async function saveDepartment() { if (!requireAdmin()) return; await apiPost('saveDepartment', { adminStaffId: state.admin.staffId, originalName: $('departmentOriginalName').value, department: $('departmentNameEdit').value.trim() }); modal('departmentModal').hide(); await loadReferenceData(true); await loadManageData(); toast('บันทึก Department แล้ว', 'success'); }
+  async function handleManageActions(e) {
+    const t = e.target; if (!(t instanceof Element)) return;
+    const dn = t.getAttribute('data-edit-doctor'); if (dn) return openDoctorModal((state.manage.doctors || []).find(d => d.name === dn) || {});
+    const ds = t.getAttribute('data-edit-staff'); if (ds) return openStaffModal((state.manage.staff || []).find(s => s.staffId === ds) || {});
+    const dd = t.getAttribute('data-edit-dept'); if (dd) return openDepartmentModal(dd);
+    const delDoctor = t.getAttribute('data-del-doctor'); if (delDoctor && requireAdmin() && confirm(`Delete doctor: ${delDoctor}?`)) { await apiPost('deleteDoctor', { adminStaffId: state.admin.staffId, name: delDoctor }); await loadReferenceData(true); await loadManageData(); }
+    const delStaff = t.getAttribute('data-del-staff'); if (delStaff && requireAdmin() && confirm(`Delete staff: ${delStaff}?`)) { await apiPost('deleteStaff', { adminStaffId: state.admin.staffId, staffId: delStaff }); await loadReferenceData(true); await loadManageData(); }
+    const delDept = t.getAttribute('data-del-dept'); if (delDept && requireAdmin() && confirm(`Delete department: ${delDept}?`)) { await apiPost('deleteDepartment', { adminStaffId: state.admin.staffId, department: delDept }); await loadReferenceData(true); await loadManageData(); }
   }
 
-  modalDoctor.hide();
-  await loadManage();
-}
-
-async function deleteDoctor(doctor) {
-  try {
-    requireAdminClient();
-    if (!confirm(`ลบ Doctor: ${doctor.name} ?`)) return;
-    await apiPost('deleteDoctor', { adminStaffId: state.admin.staffId, id: doctor.id });
-    toast('ลบ Doctor สำเร็จ', 'success');
-    await loadManage();
-  } catch (e) {
-    toast(e.message, 'danger');
+  async function init() {
+    renderApiUrl(); attachEvents(); updateAdminBadge();
+    try { await loadReferenceData(false); await prefetchMedicationIndex(); } catch (e) { toast(e.message || 'โหลดข้อมูลตั้งต้นไม่สำเร็จ', 'error'); setApiStatus('Failed', 'danger'); }
+    const hash = (location.hash || '#home').replace('#', ''); showView(['home', 'manage', 'visualization'].includes(hash) ? hash : 'home');
   }
-}
-
-function openStaffModal(staff = null) {
-  $('staffRowId').value = staff?.id || '';
-  $('staffIdInput').value = staff?.staffId || '';
-  $('staffNameInput').value = staff?.name || '';
-  $('staffRoleInput').value = staff?.role || 'User';
-  setText('modalStaffTitle', staff ? 'Edit Staff' : 'Add Staff');
-  modalStaff.show();
-}
-
-async function saveStaff() {
-  requireAdminClient();
-
-  const st = {
-    id: $('staffRowId').value ? Number($('staffRowId').value) : undefined,
-    staffId: $('staffIdInput').value.trim(),
-    name: $('staffNameInput').value.trim(),
-    role: $('staffRoleInput').value.trim(),
-  };
-
-  if (!st.staffId || !st.name) throw new Error('StaffID and Name are required.');
-
-  if (st.id) {
-    await apiPost('updateStaff', { adminStaffId: state.admin.staffId, id: st.id, staff: st });
-    toast('แก้ไข Staff สำเร็จ', 'success');
-  } else {
-    await apiPost('addStaff', { adminStaffId: state.admin.staffId, staff: st });
-    toast('เพิ่ม Staff สำเร็จ', 'success');
-  }
-
-  modalStaff.hide();
-  await loadManage();
-}
-
-async function deleteStaff(staff) {
-  try {
-    requireAdminClient();
-    if (!confirm(`ลบ Staff: ${staff.staffId} - ${staff.name} ?`)) return;
-    await apiPost('deleteStaff', { adminStaffId: state.admin.staffId, id: staff.id });
-    toast('ลบ Staff สำเร็จ', 'success');
-    await loadManage();
-  } catch (e) {
-    toast(e.message, 'danger');
-  }
-}
-
-function openDeptModal(dept = null) {
-  $('deptRowId').value = dept?.id || '';
-  $('deptNameInput').value = dept?.department || '';
-  setText('modalDeptTitle', dept ? 'Edit Department' : 'Add Department');
-  modalDept.show();
-}
-
-async function saveDept() {
-  requireAdminClient();
-
-  const dept = {
-    id: $('deptRowId').value ? Number($('deptRowId').value) : undefined,
-    department: $('deptNameInput').value.trim(),
-  };
-
-  if (!dept.department) throw new Error('Department is required.');
-
-  if (dept.id) {
-    await apiPost('updateDepartment', { adminStaffId: state.admin.staffId, id: dept.id, department: dept.department });
-    toast('แก้ไข Department สำเร็จ', 'success');
-  } else {
-    await apiPost('addDepartment', { adminStaffId: state.admin.staffId, department: dept.department });
-    toast('เพิ่ม Department สำเร็จ', 'success');
-  }
-
-  modalDept.hide();
-  await loadManage();
-}
-
-async function deleteDept(dept) {
-  try {
-    requireAdminClient();
-    if (!confirm(`ลบ Department: ${dept.department} ?`)) return;
-    await apiPost('deleteDepartment', { adminStaffId: state.admin.staffId, id: dept.id });
-    toast('ลบ Department สำเร็จ', 'success');
-    await loadManage();
-  } catch (e) {
-    toast(e.message, 'danger');
-  }
-}
-
-// ---------------- Visualization ----------------
-
-async function loadVisualization(params = {}) {
-  const data = await apiGet('getVisualization', params);
-
-  // Stats
-  setText('statTotal', String(data.stats?.totalReports ?? '-'));
-  setText('statMonth', String(data.stats?.monthReports ?? '-'));
-  setText('statConsult', `${data.stats?.consultAdjustPct ?? 0}%`);
-  setText('statFT', `${data.stats?.fulltimePct ?? 0}%`);
-
-  // Charts
-  renderDeptChart(data.charts?.byDepartment || []);
-  renderSpecialtyChart(data.charts?.bySpecialty || []);
-  renderDrugGroupChart(data.charts?.byDrugGroup || []);
-  renderGenericChart(data.charts?.byGeneric || []);
-  renderSubclassChart(data.charts?.bySubclass || []);
-  renderDoctorChart(data.charts?.byDoctor || []);
-  renderSeverityChart(data.charts?.bySeverity || []);
-  renderMonthChart(data.charts?.byMonth || []);
-
-  // New: by source (OPD/IPD/IV Chemo)
-  renderTwoSeriesBars_('chartConsultBySource', data.charts?.consultBySource || [], 'adjust', 'confirm',
-    'แพทย์ปรับแผนการรักษา', 'แพทย์ยืนยันแนวทางการรักษาเดิม');
-  renderTwoSeriesBars_('chartErrorTypeBySource', data.charts?.errorTypeBySource || [], 'inappropriate', 'incomplete',
-    'คำสั่งการรักษาไม่เหมาะสม', 'คำสั่งการรักษาไม่สมบูรณ์');
-}
-
-
-function destroyChart(c) {
-  try {
-    if (c && typeof c.destroy === 'function') c.destroy();
-  } catch (_) {}
-}
-
-// ===== Lightweight charts (no external Chart.js dependency) =====
-// We intentionally avoid Chart.js because some networks block CDN assets.
-// These helpers render simple charts directly on <canvas> using the 2D context.
-
-const _PE_CHART_PALETTE = [
-  "#0d6efd", "#20c997", "#6f42c1", "#fd7e14", "#198754",
-  "#dc3545", "#0dcaf0", "#6c757d", "#6610f2", "#ffc107"
-];
-
-function _getCanvasSize_(canvas) {
-  const cssW = Math.max(10, Math.floor(canvas.clientWidth || canvas.parentElement?.clientWidth || 600));
-  const cssHAttr = Number(canvas.getAttribute('height'));
-  const cssH = Number.isFinite(cssHAttr) && cssHAttr > 0 ? cssHAttr : Math.max(120, Math.floor(canvas.clientHeight || 180));
-  return { cssW, cssH };
-}
-
-function _setupHiDPICanvas_(canvas) {
-  const { cssW, cssH } = _getCanvasSize_(canvas);
-  const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
-  canvas.width = Math.floor(cssW * dpr);
-  canvas.height = Math.floor(cssH * dpr);
-  canvas.style.width = cssW + 'px';
-  canvas.style.height = cssH + 'px';
-  const ctx = canvas.getContext('2d');
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return { ctx, cssW, cssH };
-}
-
-function _clear_(ctx, w, h) {
-  ctx.clearRect(0, 0, w, h);
-}
-
-function _truncate_(s, n) {
-  const t = String(s || '');
-  if (t.length <= n) return t;
-  return t.slice(0, Math.max(1, n - 1)) + '…';
-}
-
-function _niceTicks_(maxVal, tickCount) {
-  const m = Math.max(1, Number(maxVal) || 1);
-  const tc = Math.max(2, tickCount || 5);
-  const step = Math.pow(10, Math.floor(Math.log10(m / (tc - 1))));
-  const scaled = (m / (tc - 1)) / step;
-  const niceScaled = scaled <= 1 ? 1 : scaled <= 2 ? 2 : scaled <= 5 ? 5 : 10;
-  const niceStep = niceScaled * step;
-  const niceMax = Math.ceil(m / niceStep) * niceStep;
-  const ticks = [];
-  for (let v = 0; v <= niceMax + 1e-9; v += niceStep) ticks.push(v);
-  return { niceMax, ticks };
-}
-
-function _withAutoResize_(canvas, draw) {
-  let raf = 0;
-  const ro = (typeof ResizeObserver !== 'undefined') ? new ResizeObserver(() => {
-    cancelAnimationFrame(raf);
-    raf = requestAnimationFrame(() => draw());
-  }) : null;
-
-  if (ro && canvas.parentElement) ro.observe(canvas.parentElement);
-  window.addEventListener('resize', draw, { passive: true });
-
-  // First draw
-  draw();
-
-  return {
-    destroy() {
-      try { if (ro) ro.disconnect(); } catch (_) {}
-      try { window.removeEventListener('resize', draw); } catch (_) {}
-      try { cancelAnimationFrame(raf); } catch (_) {}
-    }
-  };
-}
-
-function _renderBar_(canvas, labels, values, opts = {}) {
-  const horizontal = !!opts.horizontal;
-
-  return _withAutoResize_(canvas, () => {
-    const { ctx, cssW: w, cssH: h } = _setupHiDPICanvas_(canvas);
-    _clear_(ctx, w, h);
-
-    const padL = horizontal ? 160 : 48;
-    const padR = 16;
-    const padT = 16;
-    const padB = horizontal ? 20 : 42;
-
-    const plotW = Math.max(10, w - padL - padR);
-    const plotH = Math.max(10, h - padT - padB);
-
-    const maxVal = Math.max(1, ...values.map(v => Number(v) || 0));
-    const { niceMax, ticks } = _niceTicks_(maxVal, 5);
-
-    // Axes
-    ctx.strokeStyle = "rgba(0,0,0,0.15)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(padL, padT);
-    ctx.lineTo(padL, padT + plotH);
-    ctx.lineTo(padL + plotW, padT + plotH);
-    ctx.stroke();
-
-    // Grid + y ticks
-    ctx.fillStyle = "rgba(0,0,0,0.65)";
-    ctx.font = "12px Sarabun, system-ui, -apple-system, Segoe UI, Roboto";
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'middle';
-
-    if (!horizontal) {
-      for (const tv of ticks) {
-        const y = padT + plotH - (tv / niceMax) * plotH;
-        ctx.strokeStyle = "rgba(0,0,0,0.08)";
-        ctx.beginPath();
-        ctx.moveTo(padL, y);
-        ctx.lineTo(padL + plotW, y);
-        ctx.stroke();
-        ctx.fillText(String(tv), padL - 8, y);
-      }
-    } else {
-      // x ticks for horizontal bars
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
-      const xt = ticks;
-      for (const tv of xt) {
-        const x = padL + (tv / niceMax) * plotW;
-        ctx.strokeStyle = "rgba(0,0,0,0.08)";
-        ctx.beginPath();
-        ctx.moveTo(x, padT);
-        ctx.lineTo(x, padT + plotH);
-        ctx.stroke();
-        ctx.fillText(String(tv), x, padT + plotH + 6);
-      }
-    }
-
-    const n = Math.max(0, labels.length);
-    if (!n) return;
-
-    if (!horizontal) {
-      const gap = 6;
-      const barW = Math.max(2, (plotW - gap * (n - 1)) / n);
-
-      // x labels: show up to 8
-      const maxLabels = 8;
-      const step = Math.ceil(n / maxLabels);
-
-      for (let i = 0; i < n; i++) {
-        const v = Number(values[i]) || 0;
-        const x = padL + i * (barW + gap);
-        const barH = (v / niceMax) * plotH;
-        const y = padT + plotH - barH;
-
-        ctx.fillStyle = _PE_CHART_PALETTE[i % _PE_CHART_PALETTE.length];
-        ctx.fillRect(x, y, barW, barH);
-
-        // value
-        ctx.fillStyle = "rgba(0,0,0,0.75)";
-        ctx.font = "12px Sarabun, system-ui";
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'bottom';
-        ctx.fillText(String(v), x + barW / 2, y - 2);
-
-        // label
-        if (i % step === 0) {
-          ctx.save();
-          ctx.translate(x + barW / 2, padT + plotH + 8);
-          ctx.rotate(-Math.PI / 6);
-          ctx.fillStyle = "rgba(0,0,0,0.70)";
-          ctx.font = "11px Sarabun, system-ui";
-          ctx.textAlign = 'right';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(_truncate_(labels[i], 18), 0, 0);
-          ctx.restore();
-        }
-      }
-
-    } else {
-      const gap = 8;
-      const barH = Math.max(10, (plotH - gap * (n - 1)) / n);
-
-      for (let i = 0; i < n; i++) {
-        const v = Number(values[i]) || 0;
-        const y = padT + i * (barH + gap);
-        const barL = (v / niceMax) * plotW;
-
-        ctx.fillStyle = _PE_CHART_PALETTE[i % _PE_CHART_PALETTE.length];
-        ctx.fillRect(padL, y, barL, barH);
-
-        // label left
-        ctx.fillStyle = "rgba(0,0,0,0.75)";
-        ctx.font = "12px Sarabun, system-ui";
-        ctx.textAlign = 'right';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(_truncate_(labels[i], 26), padL - 10, y + barH / 2);
-
-        // value right
-        ctx.textAlign = 'left';
-        ctx.fillText(String(v), padL + barL + 6, y + barH / 2);
-      }
-    }
-  });
-}
-
-function _renderDonut_(canvas, labels, values) {
-  return _withAutoResize_(canvas, () => {
-    const { ctx, cssW: w, cssH: h } = _setupHiDPICanvas_(canvas);
-    _clear_(ctx, w, h);
-
-    const total = values.reduce((a, b) => a + (Number(b) || 0), 0);
-    if (!total) {
-      ctx.fillStyle = "rgba(0,0,0,0.6)";
-      ctx.font = "14px Sarabun, system-ui";
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('ไม่มีข้อมูล', w / 2, h / 2);
-      return;
-    }
-
-    const cx = w * 0.38;
-    const cy = h * 0.48;
-    const rOuter = Math.min(w, h) * 0.30;
-    const rInner = rOuter * 0.62;
-
-    let ang = -Math.PI / 2;
-    for (let i = 0; i < values.length; i++) {
-      const v = Number(values[i]) || 0;
-      if (v <= 0) continue;
-      const a2 = ang + (v / total) * Math.PI * 2;
-
-      ctx.beginPath();
-      ctx.moveTo(cx, cy);
-      ctx.arc(cx, cy, rOuter, ang, a2);
-      ctx.closePath();
-      ctx.fillStyle = _PE_CHART_PALETTE[i % _PE_CHART_PALETTE.length];
-      ctx.fill();
-
-      ang = a2;
-    }
-
-    // Cut out inner circle
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.beginPath();
-    ctx.arc(cx, cy, rInner, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.globalCompositeOperation = 'source-over';
-
-    // Center text
-    ctx.fillStyle = "rgba(0,0,0,0.75)";
-    ctx.font = "600 14px Sarabun, system-ui";
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(String(total), cx, cy);
-    ctx.font = "12px Sarabun, system-ui";
-    ctx.fillText('Reports', cx, cy + 16);
-
-    // Legend (right)
-    const lx = w * 0.70;
-    const ly = 18;
-    const lh = 16;
-    ctx.font = "12px Sarabun, system-ui";
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-
-    for (let i = 0; i < labels.length; i++) {
-      const v = Number(values[i]) || 0;
-      if (v <= 0) continue;
-      const y = ly + i * lh;
-      ctx.fillStyle = _PE_CHART_PALETTE[i % _PE_CHART_PALETTE.length];
-      ctx.fillRect(lx, y - 6, 10, 10);
-      ctx.fillStyle = "rgba(0,0,0,0.75)";
-      const pct = ((v / total) * 100).toFixed(1);
-      ctx.fillText(`${_truncate_(labels[i], 18)} (${pct}%)`, lx + 14, y);
-    }
-  });
-}
-
-function _renderLine_(canvas, labels, values) {
-  return _withAutoResize_(canvas, () => {
-    const { ctx, cssW: w, cssH: h } = _setupHiDPICanvas_(canvas);
-    _clear_(ctx, w, h);
-
-    const padL = 48, padR = 12, padT = 16, padB = 32;
-    const plotW = Math.max(10, w - padL - padR);
-    const plotH = Math.max(10, h - padT - padB);
-
-    const n = Math.max(0, values.length);
-    if (!n) {
-      ctx.fillStyle = "rgba(0,0,0,0.6)";
-      ctx.font = "14px Sarabun, system-ui";
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('ไม่มีข้อมูล', w / 2, h / 2);
-      return;
-    }
-
-    const maxVal = Math.max(1, ...values.map(v => Number(v) || 0));
-    const { niceMax, ticks } = _niceTicks_(maxVal, 4);
-
-    // axes
-    ctx.strokeStyle = "rgba(0,0,0,0.15)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(padL, padT);
-    ctx.lineTo(padL, padT + plotH);
-    ctx.lineTo(padL + plotW, padT + plotH);
-    ctx.stroke();
-
-    // grid + y labels
-    ctx.fillStyle = "rgba(0,0,0,0.65)";
-    ctx.font = "12px Sarabun, system-ui";
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'middle';
-    for (const tv of ticks) {
-      const y = padT + plotH - (tv / niceMax) * plotH;
-      ctx.strokeStyle = "rgba(0,0,0,0.08)";
-      ctx.beginPath();
-      ctx.moveTo(padL, y);
-      ctx.lineTo(padL + plotW, y);
-      ctx.stroke();
-      ctx.fillText(String(tv), padL - 8, y);
-    }
-
-    // points
-    const dx = n === 1 ? 0 : plotW / (n - 1);
-    const pts = [];
-    for (let i = 0; i < n; i++) {
-      const v = Number(values[i]) || 0;
-      const x = padL + i * dx;
-      const y = padT + plotH - (v / niceMax) * plotH;
-      pts.push({ x, y, v });
-    }
-
-    // line
-    ctx.strokeStyle = _PE_CHART_PALETTE[0];
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-    ctx.stroke();
-
-    // dots
-    ctx.fillStyle = _PE_CHART_PALETTE[0];
-    for (const p of pts) {
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // x labels: show up to 6
-    const maxLabels = 6;
-    const step = Math.ceil(n / maxLabels);
-    ctx.fillStyle = "rgba(0,0,0,0.65)";
-    ctx.font = "11px Sarabun, system-ui";
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    for (let i = 0; i < n; i += step) {
-      const x = padL + i * dx;
-      ctx.fillText(_truncate_(labels[i], 10), x, padT + plotH + 8);
-    }
-  });
-}
-
-function renderDeptChart(series) {
-  destroyChart(state.charts.dept);
-  const labels = series.map(x => x.label);
-  const values = series.map(x => x.count);
-  state.charts.dept = _renderBar_($('chartDept'), labels, values, { horizontal: false });
-}
-
-function renderSpecialtyChart(series) {
-  destroyChart(state.charts.specialty);
-  const labels = series.map(x => x.label);
-  const values = series.map(x => x.count);
-  state.charts.specialty = _renderBar_($('chartSpecialty'), labels, values, { horizontal: false });
-}
-
-function renderDrugGroupChart(series) {
-  destroyChart(state.charts.drugGroup);
-  const labels = series.map(x => x.label);
-  const values = series.map(x => x.count);
-  state.charts.drugGroup = _renderBar_($('chartDrugGroup'), labels, values, { horizontal: true });
-}
-
-function renderGenericChart(series) {
-  destroyChart(state.charts.generic);
-  const labels = series.map(x => x.label);
-  const values = series.map(x => x.count);
-  state.charts.generic = _renderBar_($('chartGeneric'), labels, values, { horizontal: true });
-}
-
-function renderSubclassChart(series) {
-  destroyChart(state.charts.subclass);
-  const labels = series.map(x => x.label);
-  const values = series.map(x => x.count);
-  state.charts.subclass = _renderBar_($('chartSubclass'), labels, values, { horizontal: true });
-}
-
-function renderDoctorChart(series) {
-  destroyChart(state.charts.doctor);
-  const labels = series.map(x => x.label);
-  const values = series.map(x => x.count);
-  state.charts.doctor = _renderBar_($('chartDoctor'), labels, values, { horizontal: true });
-}
-
-function renderSeverityChart(series) {
-  destroyChart(state.charts.severity);
-  const labels = series.map(x => x.label);
-  const values = series.map(x => x.count);
-  state.charts.severity = _renderDonut_($('chartSeverity'), labels, values);
-}
-
-function renderMonthChart(series) {
-  destroyChart(state.charts.month);
-  const labels = series.map(x => x.period);
-  const values = series.map(x => x.count);
-  state.charts.month = _renderLine_($('chartMonth'), labels, values);
-}
-
-
-// ---------------- Export XLSX ----------------
-
-function normalizeHN_(v) {
-  // HN is stored/returned sometimes as an Excel/Sheets Date, which ends up serialized as:
-  //   "yyyy-MM-dd HH:mm:ss" (e.g. "3960-07-16 00:00:00")
-  // We need to export it as *text* in the format: "MM-DD-xxxxxx" (e.g. "07-16-003960").
-  if (v === null || v === undefined) return '';
-  // If Apps Script ever returns a Date object (unlikely in JSONP, but safe):
-  if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v)) {
-    const mm = String(v.getMonth() + 1).padStart(2, '0');
-    const dd = String(v.getDate()).padStart(2, '0');
-    const yy = String(v.getFullYear()).padStart(6, '0');
-    return `${mm}-${dd}-${yy}`;
-  }
-  const s = String(v).trim();
-  if (!s) return '';
-  // Already in MM-DD-xxxxxx -> just normalize last part padding.
-  let m = s.match(/^(\d{2})-(\d{2})-(\d{1,6})$/);
-  if (m) return `${m[1]}-${m[2]}-${String(m[3]).padStart(6,'0')}`;
-  // Handle "yyyy-MM-dd ..." (or "n-MM-dd ...") -> treat first part as HN serial, export MM-DD-serial.
-  m = s.match(/^(\d{1,6})-(\d{2})-(\d{2})(?:\s+\d{2}:\d{2}:\d{2})?$/);
-  if (m) return `${m[2]}-${m[3]}-${String(m[1]).padStart(6,'0')}`;
-  // Handle "yyyy/MM/dd ..." just in case.
-  m = s.match(/^(\d{1,6})\/(\d{2})\/(\d{2})(?:\s+\d{2}:\d{2}:\d{2})?$/);
-  if (m) return `${m[2]}-${m[3]}-${String(m[1]).padStart(6,'0')}`;
-  return s; // fallback (keep as-is)
-}
-
-
-
-async function exportXlsx() {
-  if (typeof XLSX === 'undefined') {
-    throw new Error('ไม่พบไลบรารี XLSX (ตรวจสอบว่าเพิ่ม script xlsx.full.min.js ใน index.html แล้ว)');
-  }
-
-  const params = getVizParamsFromUI();
-  const data = await apiGet('exportErrors', params);
-
-  const aoa = data.aoa || [];
-  // Fix HN (Column C) formatting: force text in "MM-DD-xxxxxx" so Excel won't auto-convert to Date.
-  // Column index: 2 (A=0,B=1,C=2). Skip header row at index 0.
-  for (let i = 1; i < aoa.length; i++) {
-    if (aoa[i] && aoa[i].length > 2) {
-      aoa[i][2] = normalizeHN_(aoa[i][2]);
-    }
-  }
-
-  if (!aoa.length) {
-    toast('ไม่มีข้อมูลสำหรับ Export ตามตัวกรองปัจจุบัน', 'warning');
-    return;
-  }
-
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  XLSX.utils.book_append_sheet(wb, ws, 'PrescribingErrors');
-
-  const filename = (data.filename || `PrescribingErrors_${new Date().toISOString().slice(0,10)}.xlsx`).replace(/\s+/g, '_');
-  XLSX.writeFile(wb, filename);
-}
-
-// ---------------- Init ----------------
-
-async function init() {
-  // Production: prevent stale localStorage API URLs from breaking users
-  if (LOCK_API_URL) { try { localStorage.removeItem(API_URL_STORAGE_KEY); } catch (_) {} }
-  applyApiUiPolicy_();
-  markSystemFilled_('specialty');
-  markSystemFilled_('doctorType');
-  markSystemFilled_('drugGroup');
-  markSystemFilled_('subclass');
-  renderApiUrl_();
-
-  // Modals
-  modalDoctor = new bootstrap.Modal($('modalDoctor'));
-  modalStaff = new bootstrap.Modal($('modalStaff'));
-  modalDept = new bootstrap.Modal($('modalDept'));
-
-  // Events: reference reload
-  $('btnReloadRef')?.addEventListener('click', async () => {
-    try {
-      await loadReferenceData();
-      toast('โหลดข้อมูลอ้างอิงสำเร็จ', 'success');
-    } catch (e) {
-      toast(e.message, 'danger');
-    }
-  });
-
-  $('btnPing')?.addEventListener('click', async () => {
-    try {
-      const info = await apiGet('ping');
-      toast(`Ping OK (${info.spreadsheetName || ''})`, 'success');
-      setApiStatus_('Connected', 'success');
-    } catch (e) {
-      toast(e.message, 'danger');
-    }
-  });
-
-  // Report form
-  $('btnResetReport')?.addEventListener('click', resetReportForm);
-
-  $('department')?.addEventListener('change', () => {
-    state.selectedDoctor = null;
-    if ($('doctorSearch')) $('doctorSearch').value = '';
-    if ($('specialty')) $('specialty').value = '';
-    if ($('doctorType')) $('doctorType').value = '';
-    if ($('doctorSuggest')) $('doctorSuggest').style.display = 'none';
-  });
-
-  $('doctorSearch')?.addEventListener('input', (ev) => {
-    const q = ev.target.value;
-    state.selectedDoctor = null;
-    if ($('specialty')) $('specialty').value = '';
-    if ($('doctorType')) $('doctorType').value = '';
-
-    clearTimeout(doctorSearchTimer);
-    doctorSearchTimer = setTimeout(() => {
-      const items = doctorQuery(q);
-      showDoctorSuggest(items);
-    }, 120);
-  });
-
-  // Medication typeahead (Drug 1 / Drug 2)
-  wireMedicationTypeahead_('drug1', 'drug1Suggest', { primary: true });
-  wireMedicationTypeahead_('drug2', 'drug2Suggest', { primary: false });
-  // Drug group is auto-populated and locked
-  setDrugGroupFromDrug1_(state.selectedDrug1);
-
-
-  document.addEventListener('click', (ev) => {
-    // Close suggest popovers when clicking outside
-    const pairs = [
-      { box: $('doctorSuggest'), input: $('doctorSearch') },
-      { box: $('drug1Suggest'), input: $('drug1') },
-      { box: $('drug2Suggest'), input: $('drug2') },
-    ];
-    pairs.forEach(({ box, input }) => {
-      if (!box || !input) return;
-      if (!box.contains(ev.target) && ev.target !== input) box.style.display = 'none';
-    });
-  });
-
-  $('reportForm')?.addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-
-    try {
-      const payload = getReportPayload();
-      const err = reportClientValidate(payload);
-      if (err) { toast(err, 'danger'); return; }
-
-      const btn = $('btnSubmitReport');
-      if (btn) {
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>กำลังบันทึก…';
-      }
-
-      await apiPost('submitReport', payload);
-      toast('บันทึกข้อมูลสำเร็จ', 'success');
-      resetReportForm();
-
-      // best-effort refresh visualization
-      try { await loadVisualization(getVizParamsFromUI()); } catch {}
-
-    } catch (e) {
-      toast(e.message, 'danger');
-    } finally {
-      const btn = $('btnSubmitReport');
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fa-solid fa-floppy-disk me-2"></i>บันทึก';
-      }
-    }
-  });
-
-  // Admin verify
-  $('btnValidateAdmin')?.addEventListener('click', validateAdmin);
-
-  // Manage actions
-  $('btnReloadManage')?.addEventListener('click', async () => {
-    try { await loadManage(); toast('โหลดข้อมูลในระบบสำเร็จ', 'success'); } catch (e) { toast(e.message, 'danger'); }
-  });
-
-  $('btnAddDoctor')?.addEventListener('click', () => {
-    try { requireAdminClient(); openDoctorModal(null); } catch (e) { toast(e.message, 'danger'); }
-  });
-  $('btnAddStaff')?.addEventListener('click', () => {
-    try { requireAdminClient(); openStaffModal(null); } catch (e) { toast(e.message, 'danger'); }
-  });
-  $('btnAddDept')?.addEventListener('click', () => {
-    try { requireAdminClient(); openDeptModal(null); } catch (e) { toast(e.message, 'danger'); }
-  });
-
-  $('btnSaveDoctor')?.addEventListener('click', async () => { try { await saveDoctor(); } catch (e) { toast(e.message, 'danger'); } });
-  $('btnSaveStaff')?.addEventListener('click', async () => { try { await saveStaff(); } catch (e) { toast(e.message, 'danger'); } });
-  $('btnSaveDept')?.addEventListener('click', async () => { try { await saveDept(); } catch (e) { toast(e.message, 'danger'); } });
-
-  // Viz
-  $('btnVizRefresh')?.addEventListener('click', async () => {
-    try { await loadVisualization(getVizParamsFromUI()); } catch (e) { toast(e.message, 'danger'); }
-  });
-  $('btnVizApply')?.addEventListener('click', async () => {
-    try { await loadVisualization(getVizParamsFromUI()); } catch (e) { toast(e.message, 'danger'); }
-  });
-  $('btnVizReset')?.addEventListener('click', async () => {
-    if ($('vizStart')) $('vizStart').value = '';
-    if ($('vizEnd')) $('vizEnd').value = '';
-    if ($('vizDept')) $('vizDept').value = '';
-    if ($('vizSource')) $('vizSource').value = '';
-    if ($('vizSeverity')) $('vizSeverity').value = '';
-    if ($('vizDrugGroup')) $('vizDrugGroup').value = '';
-    if ($('vizSubclass')) $('vizSubclass').value = '';
-    if ($('vizGeneric')) $('vizGeneric').value = '';
-    if ($('vizConsult')) $('vizConsult').value = '';
-    if ($('vizErrorType')) $('vizErrorType').value = '';
-    if ($('vizSpecialty')) $('vizSpecialty').value = '';
-    if ($('vizDoctor')) $('vizDoctor').value = '';
-    if ($('vizDoctorType')) $('vizDoctorType').value = '';
-    try { await loadVisualization({}); } catch (e) { toast(e.message, 'danger'); }
-  });
-  $('btnExportXlsx')?.addEventListener('click', async () => {
-  const can = state.admin.ok && state.admin.role === 'Admin';
-  if (!can) {
-    toast('Permission denied: Export .XLSX ทำได้เฉพาะ Admin เท่านั้น', 'danger');
-    return;
-  }
-  try { await exportXlsx(); } catch (e) { toast(e.message, 'danger'); }
-});
-// API settings modal
-  const modalEl = document.getElementById('modalApi');
-  const apiModal = modalEl ? new bootstrap.Modal(modalEl) : null;
-
-  $('btnApiSettings')?.addEventListener('click', () => {
-    if (!apiModal) return;
-    $('apiUrlInput').value = getApiUrl_();
-    apiModal.show();
-  });
-
-  $('btnSaveApiUrl')?.addEventListener('click', async () => {
-    if (!apiModal) return;
-    const v = setApiUrl_($('apiUrlInput').value);
-    apiModal.hide();
-    if (!v) {
-      toast('กรุณาใส่ Web App URL ให้ถูกต้อง', 'danger');
-      return;
-    }
-    toast('บันทึก Web App URL แล้ว', 'success');
-    await safeInitialLoad_();
-  });
-
-  async function safeInitialLoad_() {
-    try {
-      if (!getApiUrl_()) {
-        setApiStatus_('Not configured', 'danger');
-        if (apiModal) apiModal.show();
-        return;
-      }
-      await loadReferenceData();
-      toast('โหลด Reference สำเร็จ', 'success');
-      await loadManage();
-      await loadVisualization({});
-    } catch (e) {
-      toast(e.message || 'เชื่อมต่อ API ไม่สำเร็จ', 'danger');
-      setApiStatus_('Disconnected', 'danger');
-    }
-  }
-
-  // Initial load
-  await safeInitialLoad_();
-}
-
-function getVizParamsFromUI() {
-  return {
-    startDate: $('vizStart')?.value || '',
-    endDate: $('vizEnd')?.value || '',
-    department: $('vizDept')?.value || '',
-    source: $('vizSource')?.value || '',
-    severityLevel: $('vizSeverity')?.value || '',
-    drugGroup: $('vizDrugGroup')?.value || '',
-    subclass: $('vizSubclass')?.value || '',
-    genericName: $('vizGeneric')?.value || '',
-    consult: $('vizConsult')?.value || '',
-    errorType: $('vizErrorType')?.value || '',
-    specialty: $('vizSpecialty')?.value || '',
-    doctor: $('vizDoctor')?.value || '',
-    doctorType: $('vizDoctorType')?.value || '',
-  };
-}
-
-document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded', init);
+})();

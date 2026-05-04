@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="18" fill="#007f8f"/>
+  <path d="M17 34h30M32 19v30" stroke="#fff" stroke-width="7" stroke-linecap="round"/>
+  <text x="32" y="57" text-anchor="middle" font-family="Arial" font-size="10" font-weight="700" fill="#dff7f8">PE</text>
+</svg>

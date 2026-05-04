@@ -1,34 +1,67 @@
-# Prescribing Error Reporting (GitHub Pages + Apps Script)
+# BHH Prescribing Error Reporting - GAS Optimized
 
-## 1) Backend (Google Apps Script)
-1. Create Apps Script project bound to the same Google Sheet (or open the sheet → Extensions → Apps Script).
-2. Paste `Code.gs` from this folder into Apps Script (replace your old Code.gs).
-3. Deploy as **Web app**
-   - Execute as: **Me**
-   - Who has access: **Anyone**
-4. Copy the Web app URL (ending with `/exec`).
+ชุดนี้เป็นเวอร์ชันปรับปรุงประสิทธิภาพ โดยยังใช้สถาปัตยกรรมเดิม:
 
-Important: Frontend sends POST with `Content-Type: text/plain;charset=utf-8` to avoid CORS preflight.
+- GitHub Pages frontend
+- Google Apps Script backend
+- Google Sheets database
+- JSONP สำหรับ GET เพื่อลดปัญหา CORS
+- POST แบบ `text/plain;charset=utf-8` พร้อม fallback `no-cors`
 
-## 2) Frontend (GitHub Pages)
-1. Put `index.html` and `assets/` in your GitHub repository.
-2. Edit `assets/js/app.js`:
-   - set `API_URL = "https://script.google.com/macros/s/XXXXX/exec"`
-3. Enable GitHub Pages for the repository.
-4. Open the GitHub Pages URL.
+## สิ่งที่ปรับปรุง
 
-## Sheets (Database)
-- `department`: column `Department` (ระบบจะยอมรับ header เดิมที่เป็น `Name` ด้วย)
-- `Staff`: columns `StaffID`, `Name`, `Role` (Admin/User)
-- `Doctor`: columns `Name`, `Department`, `Specialty`, `Type` (Full-time/Part-time)
-- `PrescribingErrors`: 38 columns (created automatically if missing)
+1. เพิ่ม `Med Rec Transfer` ในรายการ Process ที่ตรวจพบ Prescribing Error
+2. Visualization เร็วขึ้นด้วย backend aggregation และ CacheService
+3. ลดการอ่าน Google Sheet ซ้ำ ด้วย single range read + header map
+4. Medication search เร็วขึ้นด้วย `getMedicationIndex` และค้นหาใน browser หลัง prefetch
+5. เพิ่ม Process filter และกราฟ Reports by Process
+6. เพิ่ม server-side validation, audit log, sheet/header auto-create
+7. คง workflow เดิม: Report form, Manage Data, Visualization, Export XLSX
 
-## Admin permissions
-- Manage Data tab requires **Admin StaffID** validation.
-- Role is read from Sheet `Staff`.
+## โครงสร้างไฟล์
 
+```text
+index.html
+assets/css/styles.css
+assets/js/config.js
+assets/js/app.js
+apps-script/Code.gs
+docs/DEPLOYMENT.md
+docs/SHEET_SCHEMA.md
+```
 
-## Medication (Optional)
-- Add Sheet: `Medication`
-- Columns: `GenericName`, `BrandName`, `Form`, `DisplayName`, `DrugGroup`
-- Drug 1 / Drug 2 จะค้นหาได้ทั้งชื่อสามัญและชื่อการค้า และระบบจะเติม `กลุ่มยา` อัตโนมัติจาก Drug 1 และล็อกแก้ไขไม่ได้
+## การตั้งค่า
+
+1. เปิด Google Sheet ที่ใช้เป็นฐานข้อมูล
+2. Extensions > Apps Script
+3. วาง `apps-script/Code.gs`
+4. ตั้ง Script Properties:
+
+```text
+SHEET_ID=<Google Sheet ID>
+```
+
+5. Run function `setup`
+6. Deploy as Web app
+7. นำ Web App URL ไปใส่ใน `assets/js/config.js`
+
+```js
+window.PE_CONFIG = {
+  API_URL: 'https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec',
+  API_MODE: 'jsonp',
+  LOCK_API_URL: false,
+  VERSION: 'gas-optimized-2026-04-29'
+};
+```
+
+## Test URLs
+
+```text
+YOUR_WEB_APP_URL?action=health&callback=testCallback
+YOUR_WEB_APP_URL?action=getReferenceData&callback=testCallback
+YOUR_WEB_APP_URL?action=getVisualization&callback=testCallback
+```
+
+## หมายเหตุด้านประสิทธิภาพ
+
+Google Sheets ยังเหมาะกับข้อมูลระดับเล็กถึงกลางและทีม internal ถ้าข้อมูล PrescribingErrors เติบโตมากกว่า 10,000-30,000 rows หรือมีผู้ใช้งาน dashboard พร้อมกันหลายคน ควรพิจารณาย้ายไป Supabase/Postgres เพื่อ query/filter/aggregate ได้เร็วกว่าและเสถียรกว่า

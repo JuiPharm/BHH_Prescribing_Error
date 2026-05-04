@@ -1,730 +1,308 @@
 <!doctype html>
 <html lang="th">
 <head>
-  <link rel="icon" href="./favicon.ico">
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Prescribing Error Reporting</title>
-
-  <!-- Bootstrap 5 -->
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css" rel="stylesheet" />
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet" />
-  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-  <link href="./assets/css/styles.css" rel="stylesheet" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/styles.css" />
 </head>
-
-<body class="app-bg">
-  <nav class="navbar navbar-expand-lg navbar-light sticky-top app-nav">
-    <div class="container-fluid">
-      <a class="navbar-brand d-flex align-items-center gap-2" href="#">
-        <span class="app-badge"><i class="fa-solid fa-prescription-bottle-medical"></i></span>
-        <span class="fw-semibold">Prescribing Error</span>
+<body>
+  <nav class="navbar navbar-expand-lg app-navbar sticky-top">
+    <div class="container-fluid px-3 px-lg-4">
+      <a class="navbar-brand d-flex align-items-center gap-2" href="#home" data-view-link="home">
+        <span class="brand-mark">PE</span>
+        <span>
+          <strong>Prescribing Error</strong>
+          <small class="d-block">Bangkok Hospital Hatyai</small>
+        </span>
       </a>
-
-      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav">
-        <span class="navbar-toggler-icon"></span>
-      </button>
-
-      <div class="collapse navbar-collapse" id="mainNav">
-        <ul class="navbar-nav me-auto mb-2 mb-lg-0" role="tablist">
-          <li class="nav-item" role="presentation">
-            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-report" type="button" role="tab">
-              <i class="fa-regular fa-pen-to-square me-2"></i>หน้าหลัก
-            </button>
-          </li>
-          <li class="nav-item" role="presentation">
-            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-manage" type="button" role="tab">
-              <i class="fa-solid fa-gear me-2"></i>Manage Data
-            </button>
-          </li>
-          <li class="nav-item" role="presentation">
-            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-viz" type="button" role="tab">
-              <i class="fa-solid fa-chart-simple me-2"></i>Visualization
-            </button>
-          </li>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#topNav"><span class="navbar-toggler-icon"></span></button>
+      <div class="collapse navbar-collapse" id="topNav">
+        <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
+          <li class="nav-item"><a class="nav-link active" href="#home" data-view-link="home">หน้าหลัก</a></li>
+          <li class="nav-item"><a class="nav-link" href="#manage" data-view-link="manage">Manage Data</a></li>
+          <li class="nav-item"><a class="nav-link" href="#visualization" data-view-link="visualization">Visualization</a></li>
         </ul>
-
-        <div class="d-flex align-items-center gap-2">
-          <div class="input-group input-group-sm" style="max-width: 280px;">
-            <span class="input-group-text"><i class="fa-solid fa-id-card"></i></span>
-            <input id="adminStaffId" type="text" class="form-control" placeholder="Admin StaffID (สำหรับแก้ไขข้อมูล)" />
-            <button id="btnValidateAdmin" class="btn btn-outline-secondary" type="button">ตรวจสอบ</button>
-          </div>
-          <span id="adminBadge" class="badge rounded-pill text-bg-secondary">Not verified</span>
-        </div>
+        <button id="btnApiSettings" class="btn btn-sm btn-outline-light ms-lg-3" data-bs-toggle="modal" data-bs-target="#apiModal">ตั้งค่า API</button>
       </div>
     </div>
   </nav>
 
-  <main class="container-fluid py-3">
-    <div id="toastHost" class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 2000;"></div>
-
-    <div class="tab-content">
-      <!-- REPORT TAB -->
-      <section class="tab-pane fade show active" id="tab-report" role="tabpanel">
-        <div class="row g-3">
-          <div class="col-12 col-xl-9">
-            <div class="card app-card">
-              <div class="card-header app-card-header">
-                <div class="d-flex align-items-center justify-content-between">
-                  <div>
-                    <div class="app-kicker">บันทึกรายงาน</div>
-                    <h5 class="mb-0">Prescribing Error</h5>
-                  </div>
-                  <button id="btnReloadRef" class="btn btn-sm btn-outline-secondary">
-                    <i class="fa-solid fa-rotate"></i> รีเฟรชข้อมูลอ้างอิง
-                  </button>
+  <main class="container-fluid px-3 px-lg-4 py-4">
+    <section id="view-home" class="app-view">
+      <div class="row g-4">
+        <div class="col-12 col-xl-8">
+          <div class="card app-card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <div>
+                <p class="eyebrow mb-1">Medication Safety</p>
+                <h1 class="h4 mb-0">บันทึกรายงาน Prescribing Error</h1>
+              </div>
+              <button id="btnRefreshRef" class="btn btn-sm btn-outline-primary">รีเฟรชข้อมูลอ้างอิง</button>
+            </div>
+            <div class="card-body">
+              <form id="reportForm" class="row g-3" novalidate>
+                <div class="col-md-4">
+                  <label class="form-label">Prescribing Error จาก <span class="text-danger">*</span></label>
+                  <select id="prescribingErrorFrom" class="form-select" required></select>
                 </div>
-              </div>
-              <div class="card-body">
-                <form id="reportForm" novalidate>
-                  <div class="row g-3">
-                    <div class="col-12 col-md-6">
-                      <label class="form-label">Prescribing Error จาก <span class="text-danger">*</span></label>
-                      <select id="prescribingErrorFrom" class="form-select" required></select>
-                    </div>
+                <div class="col-md-4">
+                  <label class="form-label">HN <span class="text-danger">*</span></label>
+                  <input id="hn" class="form-control" placeholder="07-XX-YYYYYY" required />
+                  <div class="form-text">รูปแบบ: 07-XX-YYYYYY</div>
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label">วันที่เกิดเหตุการณ์ <span class="text-danger">*</span></label>
+                  <input id="eventDate" type="date" class="form-control" required />
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label">เวลาที่เกิดเหตุการณ์ <span class="text-danger">*</span></label>
+                  <input id="eventTime" type="time" class="form-control" required />
+                </div>
 
-                    <div class="col-12 col-md-6">
-                      <label class="form-label">HN <span class="text-danger">*</span></label>
-                      <input id="hn" class="form-control" placeholder="07-XX-YYYYYY" pattern="07-\d{2}-\d{6}" required />
-                      <div class="form-text">รูปแบบ: 07-XX-YYYYYY</div>
-                    </div>
+                <div class="col-md-4">
+                  <label class="form-label">Department <span class="text-danger">*</span></label>
+                  <select id="department" class="form-select" required></select>
+                </div>
+                <div class="col-md-4 position-relative">
+                  <label class="form-label">รายชื่อแพทย์ <span class="text-danger">*</span></label>
+                  <input id="doctorSearch" class="form-control" autocomplete="off" placeholder="พิมพ์เพื่อค้นหาแพทย์" required />
+                  <div id="doctorSuggest" class="suggest-box"></div>
+                  <div class="form-text">ระบบเติม Specialty และ Full-time/Part-time ให้อัตโนมัติจากฐาน Doctor</div>
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label">Specialty</label>
+                  <input id="specialty" class="form-control app-system-filled" readonly />
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label">Full-time / Part-time</label>
+                  <input id="doctorType" class="form-control app-system-filled" readonly />
+                </div>
 
-                    <div class="col-12 col-md-6">
-                      <label class="form-label">วันที่เกิดเหตุการณ์ <span class="text-danger">*</span></label>
-                      <input id="eventDate" type="date" class="form-control" required />
-                    </div>
+                <div class="col-12">
+                  <label class="form-label">ระบุรายละเอียดของการเกิด Prescribing Error <span class="text-danger">*</span></label>
+                  <textarea id="errorDetails" class="form-control" rows="3" required></textarea>
+                </div>
 
-                    <div class="col-12 col-md-6">
-                      <label class="form-label">เวลาที่เกิดเหตุการณ์ <span class="text-danger">*</span></label>
-                      <input id="eventTime" type="time" class="form-control" required />
-                    </div>
+                <div class="col-md-4">
+                  <label class="form-label">Consult <span class="text-danger">*</span></label>
+                  <select id="consult" class="form-select" required></select>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">ประเภทของ Prescribing Error <span class="text-danger">*</span></label>
+                  <select id="errorType" class="form-select" required></select>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Process ที่ตรวจพบ Prescribing Error <span class="text-danger">*</span></label>
+                  <select id="medicationReconciliation" class="form-select" required></select>
+                  <div class="form-text">รวม Med Rec Admission / Med Rec Transfer / Med Rec Discharge / Home Med</div>
+                </div>
 
-                    <div class="col-12 col-md-6">
-                      <label class="form-label">Department <span class="text-danger">*</span></label>
-                      <select id="department" class="form-select" required></select>
-                    </div>
+                <div class="col-md-4">
+                  <label class="form-label">ผู้รายงาน <span class="text-danger">*</span></label>
+                  <select id="reporter" class="form-select" required></select>
+                </div>
+                <div class="col-md-4 position-relative">
+                  <label class="form-label">ยาที่เกิด Prescribing Error ตัวที่ 1 <span class="text-danger">*</span></label>
+                  <input id="drug1" class="form-control" autocomplete="off" placeholder="ค้นหาชื่อสามัญหรือชื่อการค้า" required />
+                  <div id="drug1Suggest" class="suggest-box"></div>
+                </div>
+                <div class="col-md-4 position-relative">
+                  <label class="form-label">ยาที่เกิด Prescribing Error ตัวที่ 2</label>
+                  <input id="drug2" class="form-control" autocomplete="off" placeholder="ค้นหาชื่อสามัญหรือชื่อการค้า" />
+                  <div id="drug2Suggest" class="suggest-box"></div>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">กลุ่มของยา <span class="text-danger">*</span></label>
+                  <select id="drugGroup" class="form-select app-system-filled" disabled required></select>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Subclass (กลุ่มย่อย)</label>
+                  <select id="subclass" class="form-select app-system-filled" disabled></select>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">SEVERITY LEVEL <span class="text-danger">*</span></label>
+                  <select id="severityLevel" class="form-select" required></select>
+                </div>
 
-                    <div class="col-12 col-md-6 position-relative">
-                      <label class="form-label">รายชื่อแพทย์ <span class="text-danger">*</span></label>
-                      <input id="doctorSearch" class="form-control" placeholder="พิมพ์ชื่อ / แผนก / specialty เพื่อค้นหา…" autocomplete="off" required />
-                      <div id="doctorSuggest" class="app-suggest shadow-sm border rounded-3 bg-white"></div>
-                      <div class="form-text">ระบบจะเติม Specialty และ Full-time/Part-time ให้อัตโนมัติจาก Sheet Doctor</div>
-                    </div>
-
-                    <div class="col-12 col-md-6">
-                      <label class="form-label">Specialty</label>
-                      <input id="specialty" class="form-control app-system-filled" readonly />
-                    </div>
-
-                    <div class="col-12 col-md-6">
-                      <label class="form-label">ระบุแพทย์ Full-Time / Part-Time</label>
-                      <input id="doctorType" class="form-control app-system-filled" readonly />
-                    </div>
-
-                    <div class="col-12">
-                      <label class="form-label">ระบุรายละเอียดของการเกิด Prescribing Error <span class="text-danger">*</span></label>
-                      <textarea id="errorDetails" class="form-control" rows="4" required></textarea>
-                    </div>
-
-                    <div class="col-12 col-md-6">
-                      <label class="form-label">Consult <span class="text-danger">*</span></label>
-                      <select id="consult" class="form-select" required></select>
-                    </div>
-
-                    <div class="col-12 col-md-6">
-                      <label class="form-label">ประเภทของ Prescribing Error <span class="text-danger">*</span></label>
-                      <select id="errorType" class="form-select" required></select>
-                    </div>
-
-                    <div class="col-12 col-md-6">
-                      <label class="form-label">Process ที่ตรวจพบ Prescribing Error <span class="text-danger">*</span></label>
-                      <select id="medicationReconciliation" class="form-select" required></select>
-                    </div>
-
-                    <div class="col-12 col-md-6">
-                      <label class="form-label">ผู้รายงาน <span class="text-danger">*</span></label>
-                      <select id="reporter" class="form-select" required></select>
-                    </div>
-
-                    <div class="col-12 col-md-6 position-relative">
-                      <label class="form-label">ยาที่เกิด Prescribing Error ตัวที่ 1 <span class="text-danger">*</span></label>
-                      <input id="drug1" class="form-control" required />
-                      <div id="drug1Suggest" class="app-suggest app-card"></div>
-                    </div>
-
-                    <div class="col-12 col-md-6 position-relative">
-                      <label class="form-label">ยาที่เกิด Prescribing Error ตัวที่ 2</label>
-                      <input id="drug2" class="form-control" />
-                      <div id="drug2Suggest" class="app-suggest app-card"></div>
-                    </div>
-
-                    <div class="col-12 col-md-6">
-                      <label class="form-label">กลุ่มของยา <span class="text-danger">*</span></label>
-                      <select id="drugGroup" class="form-select" required></select>
-
-                      <div class="mt-2">
-                        <label class="form-label">Subclass (กลุ่มย่อย)</label>
-                        <input id="subclass" class="form-control app-system-filled" readonly />
-                      </div>
-                    </div>
-
-                    <div class="col-12 col-md-6">
-                      <label class="form-label">SEVERITY LEVEL <span class="text-danger">*</span></label>
-                      <select id="severityLevel" class="form-select" required></select>
-                    </div>
-                  </div>
-
-                  <div class="d-flex flex-wrap gap-2 justify-content-end mt-4">
-                    <button id="btnSubmitReport" type="submit" class="btn btn-primary">
-                      <i class="fa-solid fa-floppy-disk me-2"></i>บันทึก
-                    </button>
-                    <button id="btnResetReport" type="button" class="btn btn-outline-secondary">
-                      ล้างฟอร์ม
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          </div>
-
-          <!-- Right side: help / quick stats -->
-          <div class="col-12 col-xl-3">
-            <div class="card app-card mb-3">
-              <div class="card-header app-card-header">
-                <div class="app-kicker">สถานะระบบ</div>
-                <h6 class="mb-0">API Connection</h6>
-              </div>
-              <div class="card-body">
-
-<div class="d-flex align-items-center justify-content-between">
-  <div class="small text-muted">Status</div>
-  <div class="btn-group btn-group-sm" role="group" aria-label="API controls">
-    <button id="btnPing" class="btn btn-outline-secondary" type="button">Ping</button>
-  </div>
-</div>
-<div id="apiStatusText" class="mt-2 fw-semibold text-success">Success</div>
-<div id="apiUrlHelp" class="form-text small" style="display:none;">ตั้งค่า Web App URL ของ Google Apps Script (ลงท้ายด้วย <code>/exec</code>) เพื่อเชื่อมต่อกับ Google Sheets</div>
-<div id="apiUrlText" style="display:none;"></div>
-<hr />
-<div class="small text-muted">Last sync</div>
-<div id="lastSync" class="fw-semibold">-</div>
-</div>
-            </div>
-
-            <div class="card app-card">
-              <div class="card-header app-card-header">
-                <div class="app-kicker">คำแนะนำ</div>
-                <h6 class="mb-0">การใช้งาน</h6>
-              </div>
-              <div class="card-body small">
-                <ul class="mb-0">
-                  <li>เลือก Department แล้วพิมพ์ชื่อแพทย์เพื่อค้นหา</li>
-                  <li>ระบบเติม Specialty และ Full-time/Part-time จากฐาน Doctor</li>
-                  <li>Manage Data ต้องยืนยัน Admin StaffID ก่อนจึงเพิ่ม/แก้ไข/ลบได้</li>
-                </ul>
-              </div>
+                <div class="col-12 d-flex gap-2 pt-2">
+                  <button id="btnSubmitReport" type="submit" class="btn btn-primary px-4">บันทึก</button>
+                  <button type="button" id="btnResetReport" class="btn btn-outline-secondary">ล้างฟอร์ม</button>
+                </div>
+              </form>
             </div>
           </div>
         </div>
-      </section>
 
-      <!-- MANAGE TAB -->
-      <section class="tab-pane fade" id="tab-manage" role="tabpanel">
-        <div class="row g-3">
-          <div class="col-12">
-            <div class="card app-card">
-              <div class="card-header app-card-header">
-                <div class="d-flex align-items-center justify-content-between">
-                  <div>
-                    <div class="app-kicker">จัดการข้อมูลอ้างอิง</div>
-                    <h5 class="mb-0">Doctors / Staff / Departments</h5>
-                  </div>
-                  <div class="d-flex gap-2">
-                    <button id="btnReloadManage" class="btn btn-sm btn-outline-secondary">
-                      <i class="fa-solid fa-rotate"></i> รีโหลด
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <div class="card-body">
-                <ul class="nav nav-pills mb-3" role="tablist">
-                  <li class="nav-item">
-                    <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#manage-doctors" type="button" role="tab">Doctors</button>
-                  </li>
-                  <li class="nav-item">
-                    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#manage-staff" type="button" role="tab">Staff</button>
-                  </li>
-                  <li class="nav-item">
-                    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#manage-dept" type="button" role="tab">Departments</button>
-                  </li>
-                </ul>
-
-                <div class="tab-content">
-                  <div class="tab-pane fade show active" id="manage-doctors" role="tabpanel">
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                      <div class="text-muted small">เพิ่ม/แก้ไขรายชื่อแพทย์</div>
-                      <button id="btnAddDoctor" class="btn btn-sm btn-primary">
-                        <i class="fa-solid fa-plus me-2"></i>Add Doctor
-                      </button>
-                    </div>
-                    <div class="table-responsive">
-                      <table class="table table-sm align-middle">
-                        <thead>
-                          <tr>
-                            <th style="width: 30%;">Name</th>
-                            <th style="width: 25%;">Department</th>
-                            <th style="width: 25%;">Specialty</th>
-                            <th style="width: 10%;">Type</th>
-                            <th style="width: 10%;" class="text-end">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody id="tblDoctors"></tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  <div class="tab-pane fade" id="manage-staff" role="tabpanel">
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                      <div class="text-muted small">เพิ่ม/แก้ไขผู้ใช้งาน</div>
-                      <button id="btnAddStaff" class="btn btn-sm btn-primary">
-                        <i class="fa-solid fa-plus me-2"></i>Add Staff
-                      </button>
-                    </div>
-                    <div class="table-responsive">
-                      <table class="table table-sm align-middle">
-                        <thead>
-                          <tr>
-                            <th style="width: 20%;">StaffID</th>
-                            <th style="width: 45%;">Name</th>
-                            <th style="width: 15%;">Role</th>
-                            <th style="width: 20%;" class="text-end">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody id="tblStaff"></tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  <div class="tab-pane fade" id="manage-dept" role="tabpanel">
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                      <div class="text-muted small">เพิ่ม/แก้ไขแผนก (Department)</div>
-                      <button id="btnAddDept" class="btn btn-sm btn-primary">
-                        <i class="fa-solid fa-plus me-2"></i>Add Department
-                      </button>
-                    </div>
-                    <div class="table-responsive">
-                      <table class="table table-sm align-middle">
-                        <thead>
-                          <tr>
-                            <th>Department</th>
-                            <th class="text-end">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody id="tblDept"></tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="alert alert-light border mt-3 mb-0 small">
-                  <strong>สิทธิ์การใช้งาน:</strong> ระบบอนุญาตให้เพิ่ม/แก้ไข/ลบได้เฉพาะ Role = Admin เท่านั้น (ตรวจสอบจาก Sheet Staff)
-                </div>
-              </div>
+        <div class="col-12 col-xl-4">
+          <div class="card app-card mb-4">
+            <div class="card-header"><h2 class="h6 mb-0">สถานะระบบ</h2></div>
+            <div class="card-body">
+              <div class="d-flex justify-content-between"><span>API Connection</span><strong id="apiStatusText" class="text-secondary">Not verified</strong></div>
+              <div class="d-flex justify-content-between mt-2"><span>Last sync</span><strong id="lastSync">-</strong></div>
+              <div id="apiUrlHelp" class="small text-muted mt-3">ตั้งค่า Web App URL หรือ Supabase Edge Function URL ในไฟล์ assets/js/config.js</div>
+              <div id="apiUrlText" class="small code-pill mt-2"></div>
+              <button id="btnPing" class="btn btn-sm btn-outline-primary mt-3">Ping</button>
+            </div>
+          </div>
+          <div class="card app-card">
+            <div class="card-header"><h2 class="h6 mb-0">คำแนะนำ</h2></div>
+            <div class="card-body small text-muted">
+              <ul class="mb-0">
+                <li>ระบบค้นหายาจาก local medication index เพื่อลด API round-trip</li>
+                <li>Visualization ใช้ backend aggregation + cache เพื่อลดเวลารอ</li>
+                <li>Manage Data ต้องยืนยัน Admin StaffID ก่อนเพิ่ม/แก้ไข/ลบ</li>
+              </ul>
             </div>
           </div>
         </div>
-      </section>
+      </div>
+    </section>
 
-      <!-- VIZ TAB -->
-      <section class="tab-pane fade" id="tab-viz" role="tabpanel">
-        <div class="row g-3">
-          <div class="col-12">
-            <div class="card app-card">
-              <div class="card-header app-card-header">
-                <div class="d-flex align-items-center justify-content-between">
-                  <div>
-                    <div class="app-kicker">สรุปข้อมูล</div>
-                    <h5 class="mb-0">Visualization</h5>
-                  </div>
-                  <div class="d-flex gap-2">
-                    <button id="btnVizRefresh" class="btn btn-sm btn-outline-secondary">
-                      <i class="fa-solid fa-rotate"></i> รีเฟรช
-                    </button>
-                    <button id="btnExportXlsx" class="btn btn-sm btn-outline-primary" disabled title="เฉพาะ Admin เท่านั้น">
-                      <i class="fa-solid fa-file-export"></i> Export .XLSX
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div class="card-body">
-                <!-- Filters -->
-                <div class="row g-2 align-items-end">
-                  <div class="col-12 col-md-3">
-                    <label class="form-label small">Start date</label>
-                    <input id="vizStart" type="date" class="form-control form-control-sm" />
-                  </div>
-                  <div class="col-12 col-md-3">
-                    <label class="form-label small">End date</label>
-                    <input id="vizEnd" type="date" class="form-control form-control-sm" />
-                  </div>
-                  <div class="col-12 col-md-3">
-                    <label class="form-label small">Department</label>
-                    <select id="vizDept" class="form-select form-select-sm"></select>
-                  </div>
-                  <div class="col-12 col-md-3">
-                    <label class="form-label small">Source</label>
-                    <select id="vizSource" class="form-select form-select-sm"></select>
-                  </div>
-
-                  <div class="col-12 col-md-3">
-                    <label class="form-label small">Severity</label>
-                    <select id="vizSeverity" class="form-select form-select-sm"></select>
-                  </div>
-                  <div class="col-12 col-md-3">
-                    <label class="form-label small">Drug group</label>
-                    <select id="vizDrugGroup" class="form-select form-select-sm"></select>
-                  </div>
-                  <div class="col-12 col-md-3">
-                    <label class="form-label small">Subclass</label>
-                    <select id="vizSubclass" class="form-select form-select-sm"></select>
-                  </div>
-                  <div class="col-12 col-md-3">
-                    <label class="form-label small">Generic</label>
-                    <select id="vizGeneric" class="form-select form-select-sm"></select>
-                  </div>
-
-                  <div class="col-12 col-md-3">
-                    <label class="form-label small">Consult</label>
-                    <select id="vizConsult" class="form-select form-select-sm"></select>
-                  </div>
-                  <div class="col-12 col-md-3">
-                    <label class="form-label small">Error type</label>
-                    <select id="vizErrorType" class="form-select form-select-sm"></select>
-                  </div>
-                  <div class="col-12 col-md-3">
-                    <label class="form-label small">Specialty</label>
-                    <select id="vizSpecialty" class="form-select form-select-sm"></select>
-                  </div>
-                  <div class="col-12 col-md-3">
-                    <label class="form-label small">Doctor</label>
-                    <select id="vizDoctor" class="form-select form-select-sm"></select>
-                  </div>
-
-                  <div class="col-12 col-md-3">
-                    <label class="form-label small">Doctor type</label>
-                    <select id="vizDoctorType" class="form-select form-select-sm"></select>
-                  </div>
-
-                  <div class="col-12 d-flex gap-2">
-                    <button id="btnVizApply" class="btn btn-sm btn-primary flex-grow-1">Apply</button>
-                    <button id="btnVizReset" class="btn btn-sm btn-outline-secondary">Reset</button>
-                  </div>
-                </div>
-
-                <hr />
-
-                <!-- Stat cards -->
-                <div class="row g-3">
-                  <div class="col-12 col-md-6 col-xl-3">
-                    <div class="app-stat">
-                      <div class="app-stat-title">Reports (ทั้งหมด)</div>
-                      <div id="statTotal" class="app-stat-value">-</div>
-                    </div>
-                  </div>
-                  <div class="col-12 col-md-6 col-xl-3">
-                    <div class="app-stat">
-                      <div class="app-stat-title">Reports (เดือนปัจจุบัน)</div>
-                      <div id="statMonth" class="app-stat-value">-</div>
-                    </div>
-                  </div>
-                  <div class="col-12 col-md-6 col-xl-3">
-                    <div class="app-stat">
-                      <div class="app-stat-title">% Consult ปรับแผนการรักษา</div>
-                      <div id="statConsult" class="app-stat-value">-</div>
-                    </div>
-                  </div>
-                  <div class="col-12 col-md-6 col-xl-3">
-                    <div class="app-stat">
-                      <div class="app-stat-title">% Full-time</div>
-                      <div id="statFT" class="app-stat-value">-</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="row g-3 mt-1">
-                  <div class="col-12 col-xl-6">
-                    <div class="card app-card-inner">
-                      <div class="card-header bg-transparent border-0 pb-0">
-                        <div class="fw-semibold">Reports by Department (Top 20)</div>
-                        <div class="text-muted small">นับจำนวนรายงานตามแผนก</div>
-                      </div>
-                      <div class="card-body">
-                        <canvas id="chartDept" height="180"></canvas>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="col-12 col-xl-6">
-                    <div class="card app-card-inner">
-                      <div class="card-header bg-transparent border-0 pb-0">
-                        <div class="fw-semibold">Reports by Severity</div>
-                        <div class="text-muted small">สัดส่วนตามระดับความรุนแรง</div>
-                      </div>
-                      <div class="card-body">
-                        <canvas id="chartSeverity" height="180"></canvas>
-                      </div>
-                    </div>
-                  </div>
-
-                  
-                  <div class="col-12 col-xl-6">
-                    <div class="card app-card-inner">
-                      <div class="card-header bg-transparent border-0 pb-0">
-                        <div class="fw-semibold">Reports by Specialty (Top 20)</div>
-                        <div class="text-muted small">นับจำนวนรายงานตาม Specialty</div>
-                      </div>
-                      <div class="card-body">
-                        <canvas id="chartSpecialty" height="180"></canvas>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="col-12 col-xl-6">
-                    <div class="card app-card-inner">
-                      <div class="card-header bg-transparent border-0 pb-0">
-                        <div class="fw-semibold">Reports by Drug Group (Top 20)</div>
-                        <div class="text-muted small">นับจำนวนรายงานตามกลุ่มยา</div>
-                      </div>
-                      <div class="card-body">
-                        <canvas id="chartDrugGroup" height="180"></canvas>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="col-12 col-xl-6">
-                    <div class="card app-card-inner">
-                      <div class="card-header bg-transparent border-0 pb-0">
-                        <div class="fw-semibold">Reports by Generic (Top 20)</div>
-                        <div class="text-muted small">นับจำนวนรายงานตาม Generic name (อ้างอิงจากยาตัวที่ 1)</div>
-                      </div>
-                      <div class="card-body">
-                        <canvas id="chartGeneric" height="180"></canvas>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="col-12 col-xl-6">
-                    <div class="card app-card-inner">
-                      <div class="card-header bg-transparent border-0 pb-0">
-                        <div class="fw-semibold">Reports by Subclass (Top 20)</div>
-                        <div class="text-muted small">นับจำนวนรายงานตาม Subclass</div>
-                      </div>
-                      <div class="card-body">
-                        <canvas id="chartSubclass" height="180"></canvas>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="col-12">
-                    <div class="card app-card-inner">
-                      <div class="card-header bg-transparent border-0 pb-0">
-                        <div class="fw-semibold">Reports by Doctor (Top 20)</div>
-                        <div class="text-muted small">นับจำนวนรายงานตามชื่อแพทย์ (ดึงชื่อจากคอลัมน์รายชื่อแพทย์ตาม Department)</div>
-                      </div>
-                      <div class="card-body">
-                        <canvas id="chartDoctor" height="160"></canvas>
-                      </div>
-                    </div>
-                  </div>
-
-<div class="col-12">
-                    <div class="card app-card-inner">
-                      <div class="card-header bg-transparent border-0 pb-0">
-                        <div class="fw-semibold">Trend by Month</div>
-                        <div class="text-muted small">แนวโน้มจำนวนรายงานรายเดือน</div>
-                      </div>
-                      <div class="card-body">
-                        <canvas id="chartMonth" height="110"></canvas>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-<div class="col-12">
-  <div class="card app-card-inner">
-    <div class="card-header bg-transparent border-0 pb-0">
-      <div class="fw-semibold">Consult results by Source (OPD/IPD/IV Chemo)</div>
-      <div class="text-muted small">แยกผล Consult ตาม Prescribing Error จาก</div>
-    </div>
-    <div class="card-body">
-      <div id="chartConsultBySource" class="mini-bars"></div>
-    </div>
-  </div>
-</div>
-
-<div class="col-12">
-  <div class="card app-card-inner">
-    <div class="card-header bg-transparent border-0 pb-0">
-      <div class="fw-semibold">Prescribing Error Type by Source (OPD/IPD/IV Chemo)</div>
-      <div class="text-muted small">แยกประเภท Prescribing Error ตาม Prescribing Error จาก</div>
-    </div>
-    <div class="card-body">
-      <div id="chartErrorTypeBySource" class="mini-bars"></div>
-    </div>
-  </div>
-</div>
-
-
-
-                <div class="text-muted small mt-3">
-                  หมายเหตุ: การแสดงผลกราฟใช้ข้อมูลที่กรองตามช่วงเวลา/แผนกที่เลือก หากต้องการละเอียดเพิ่มเติมสามารถเพิ่ม filter (consult/type/severity) ในไฟล์ app.js ได้ทันที
-                </div>
-              </div>
-            </div>
+    <section id="view-manage" class="app-view d-none">
+      <div class="card app-card">
+        <div class="card-header d-lg-flex justify-content-between align-items-center">
+          <div>
+            <p class="eyebrow mb-1">Reference Data</p>
+            <h1 class="h4 mb-0">Doctors / Staff / Departments</h1>
+          </div>
+          <div class="d-flex gap-2 mt-3 mt-lg-0">
+            <input id="adminStaffId" class="form-control form-control-sm" placeholder="Admin StaffID" style="max-width: 180px" />
+            <button id="btnVerifyAdmin" class="btn btn-sm btn-outline-primary">ตรวจสอบ</button>
+            <span id="adminBadge" class="badge text-bg-secondary align-self-center">Not verified</span>
+            <button id="btnReloadManage" class="btn btn-sm btn-outline-secondary">รีโหลด</button>
           </div>
         </div>
-      </section>
-    </div>
+        <div class="card-body">
+          <ul class="nav nav-tabs" id="manageTabs" role="tablist">
+            <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabDoctors" type="button">Doctors</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabStaff" type="button">Staff</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabDepartments" type="button">Departments</button></li>
+          </ul>
+          <div class="tab-content pt-3">
+            <div class="tab-pane fade show active" id="tabDoctors">
+              <div class="d-flex justify-content-between mb-2"><h2 class="h6">รายชื่อแพทย์</h2><button class="btn btn-sm btn-primary" id="btnAddDoctor">Add Doctor</button></div>
+              <div class="table-responsive"><table class="table table-hover align-middle"><thead><tr><th>Name</th><th>Department</th><th>Specialty</th><th>Type</th><th class="text-end">Actions</th></tr></thead><tbody id="doctorTableBody"></tbody></table></div>
+            </div>
+            <div class="tab-pane fade" id="tabStaff">
+              <div class="d-flex justify-content-between mb-2"><h2 class="h6">ผู้ใช้งาน</h2><button class="btn btn-sm btn-primary" id="btnAddStaff">Add Staff</button></div>
+              <div class="table-responsive"><table class="table table-hover align-middle"><thead><tr><th>StaffID</th><th>Name</th><th>Role</th><th class="text-end">Actions</th></tr></thead><tbody id="staffTableBody"></tbody></table></div>
+            </div>
+            <div class="tab-pane fade" id="tabDepartments">
+              <div class="d-flex justify-content-between mb-2"><h2 class="h6">Department</h2><button class="btn btn-sm btn-primary" id="btnAddDepartment">Add Department</button></div>
+              <div class="table-responsive"><table class="table table-hover align-middle"><thead><tr><th>Department</th><th class="text-end">Actions</th></tr></thead><tbody id="departmentTableBody"></tbody></table></div>
+            </div>
+          </div>
+          <p class="small text-muted mt-3 mb-0">สิทธิ์การใช้งาน: ระบบอนุญาตให้เพิ่ม/แก้ไข/ลบได้เฉพาะ Role = Admin เท่านั้น</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-visualization" class="app-view d-none">
+      <div class="card app-card mb-4">
+        <div class="card-header d-lg-flex justify-content-between align-items-center">
+          <div>
+            <p class="eyebrow mb-1">Dashboard</p>
+            <h1 class="h4 mb-0">Visualization</h1>
+          </div>
+          <div class="d-flex gap-2 mt-3 mt-lg-0">
+            <button id="btnRefreshViz" class="btn btn-sm btn-primary">รีเฟรช</button>
+            <button id="btnExportXlsx" class="btn btn-sm btn-outline-primary">Export .XLSX</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="row g-2 align-items-end">
+            <div class="col-md-2"><label class="form-label">Start date</label><input id="vizStart" type="date" class="form-control" /></div>
+            <div class="col-md-2"><label class="form-label">End date</label><input id="vizEnd" type="date" class="form-control" /></div>
+            <div class="col-md-2"><label class="form-label">Department</label><select id="vizDept" class="form-select"></select></div>
+            <div class="col-md-2"><label class="form-label">Source</label><select id="vizSource" class="form-select"></select></div>
+            <div class="col-md-2"><label class="form-label">Severity</label><select id="vizSeverity" class="form-select"></select></div>
+            <div class="col-md-2"><label class="form-label">Process</label><select id="vizProcess" class="form-select"></select></div>
+            <div class="col-md-2"><label class="form-label">Drug group</label><select id="vizDrugGroup" class="form-select"></select></div>
+            <div class="col-md-2"><label class="form-label">Subclass</label><select id="vizSubclass" class="form-select"></select></div>
+            <div class="col-md-2"><label class="form-label">Generic</label><select id="vizGeneric" class="form-select"></select></div>
+            <div class="col-md-2"><label class="form-label">Consult</label><select id="vizConsult" class="form-select"></select></div>
+            <div class="col-md-2"><label class="form-label">Error type</label><select id="vizErrorType" class="form-select"></select></div>
+            <div class="col-md-2"><label class="form-label">Specialty</label><select id="vizSpecialty" class="form-select"></select></div>
+            <div class="col-md-2"><label class="form-label">Doctor</label><select id="vizDoctor" class="form-select"></select></div>
+            <div class="col-md-2"><label class="form-label">Doctor type</label><select id="vizDoctorType" class="form-select"></select></div>
+            <div class="col-md-4 d-flex gap-2"><button id="btnApplyViz" class="btn btn-primary">Apply</button><button id="btnResetViz" class="btn btn-outline-secondary">Reset</button></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row g-3 mb-3">
+        <div class="col-md-3"><div class="metric-card"><span>Reports ทั้งหมด</span><strong id="metricTotal">-</strong></div></div>
+        <div class="col-md-3"><div class="metric-card"><span>Reports เดือนปัจจุบัน</span><strong id="metricThisMonth">-</strong></div></div>
+        <div class="col-md-3"><div class="metric-card"><span>% Consult ปรับแผน</span><strong id="metricConsultAdjusted">-</strong></div></div>
+        <div class="col-md-3"><div class="metric-card"><span>% Full-time</span><strong id="metricFullTime">-</strong></div></div>
+      </div>
+
+      <div class="row g-4">
+        <div class="col-xl-6"><div class="card app-card h-100"><div class="card-header"><h2 class="h6 mb-0">Reports by Department</h2></div><div class="card-body chart-wrap"><canvas id="chartDept"></canvas></div></div></div>
+        <div class="col-xl-6"><div class="card app-card h-100"><div class="card-header"><h2 class="h6 mb-0">Reports by Severity</h2></div><div class="card-body chart-wrap"><canvas id="chartSeverity"></canvas></div></div></div>
+        <div class="col-xl-6"><div class="card app-card h-100"><div class="card-header"><h2 class="h6 mb-0">Reports by Process</h2></div><div class="card-body chart-wrap"><canvas id="chartProcess"></canvas></div></div></div>
+        <div class="col-xl-6"><div class="card app-card h-100"><div class="card-header"><h2 class="h6 mb-0">Trend by Month</h2></div><div class="card-body chart-wrap"><canvas id="chartMonth"></canvas></div></div></div>
+        <div class="col-xl-6"><div class="card app-card h-100"><div class="card-header"><h2 class="h6 mb-0">Reports by Drug Group</h2></div><div class="card-body chart-wrap"><canvas id="chartDrugGroup"></canvas></div></div></div>
+        <div class="col-xl-6"><div class="card app-card h-100"><div class="card-header"><h2 class="h6 mb-0">Reports by Doctor</h2></div><div class="card-body chart-wrap"><canvas id="chartDoctor"></canvas></div></div></div>
+        <div class="col-xl-6"><div class="card app-card h-100"><div class="card-header"><h2 class="h6 mb-0">Consult results by Source</h2></div><div class="card-body"><div id="consultBySourceBars" class="stacked-list"></div></div></div></div>
+        <div class="col-xl-6"><div class="card app-card h-100"><div class="card-header"><h2 class="h6 mb-0">Error Type by Source</h2></div><div class="card-body"><div id="errorTypeBySourceBars" class="stacked-list"></div></div></div></div>
+      </div>
+    </section>
   </main>
 
-  <!-- Doctor modal -->
-  <div class="modal fade" id="modalDoctor" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h6 id="modalDoctorTitle" class="modal-title">Doctor</h6>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-        </div>
-        <div class="modal-body">
-          <form id="formDoctor" class="row g-2">
-            <input type="hidden" id="doctorId" />
-            <div class="col-12">
-              <label class="form-label">Name *</label>
-              <input id="doctorName" class="form-control" required />
-            </div>
-            <div class="col-12">
-              <label class="form-label">Department</label>
-              <select id="doctorDept" class="form-select"></select>
-            </div>
-            <div class="col-12">
-              <label class="form-label">Specialty</label>
-              <input id="doctorSpec" class="form-control" />
-            </div>
-            <div class="col-12">
-              <label class="form-label">Type</label>
-              <select id="doctorTypeModal" class="form-select">
-                <option value="">-</option>
-                <option value="Full-time">Full-time</option>
-                <option value="Part-time">Part-time</option>
-              </select>
-            </div>
-          </form>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button id="btnSaveDoctor" class="btn btn-primary">Save</button>
-        </div>
+  <div id="toastHost" class="toast-container position-fixed bottom-0 end-0 p-3"></div>
+
+  <div class="modal fade" id="apiModal" tabindex="-1">
+    <div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">ตั้งค่า API URL</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <label class="form-label">Web App URL / Edge Function URL</label>
+        <input id="apiUrlInput" class="form-control" placeholder="https://.../exec หรือ https://.../functions/v1/pe-api" />
+        <div class="form-text">ระบบเก็บ URL ใน localStorage เฉพาะเครื่องนี้ ถ้า LOCK_API_URL=true จะใช้ค่าใน config เท่านั้น</div>
       </div>
-    </div>
+      <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal">ยกเลิก</button><button id="btnSaveApiUrl" class="btn btn-primary" data-bs-dismiss="modal">บันทึก</button></div>
+    </div></div>
   </div>
 
-  <!-- Staff modal -->
-  <div class="modal fade" id="modalStaff" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h6 id="modalStaffTitle" class="modal-title">Staff</h6>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-        </div>
-        <div class="modal-body">
-          <form id="formStaff" class="row g-2">
-            <input type="hidden" id="staffRowId" />
-            <div class="col-12">
-              <label class="form-label">StaffID *</label>
-              <input id="staffIdInput" class="form-control" required />
-            </div>
-            <div class="col-12">
-              <label class="form-label">Name *</label>
-              <input id="staffNameInput" class="form-control" required />
-            </div>
-            <div class="col-12">
-              <label class="form-label">Role *</label>
-              <select id="staffRoleInput" class="form-select" required>
-                <option value="User">User</option>
-                <option value="Admin">Admin</option>
-              </select>
-            </div>
-          </form>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button id="btnSaveStaff" class="btn btn-primary">Save</button>
-        </div>
-      </div>
+  <div class="modal fade" id="doctorModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">Doctor</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body row g-3">
+      <input type="hidden" id="doctorOriginalName" />
+      <div class="col-12"><label class="form-label">Name *</label><input id="doctorName" class="form-control" /></div>
+      <div class="col-md-6"><label class="form-label">Department</label><select id="doctorDept" class="form-select"></select></div>
+      <div class="col-md-6"><label class="form-label">Specialty</label><input id="doctorSpecialty" class="form-control" /></div>
+      <div class="col-md-6"><label class="form-label">Type</label><select id="doctorTypeEdit" class="form-select"><option value="">-</option><option>Full-time</option><option>Part-time</option></select></div>
     </div>
-  </div>
+    <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button id="btnSaveDoctor" class="btn btn-primary">Save</button></div>
+  </div></div></div>
 
-  <!-- Department modal -->
-  <div class="modal fade" id="modalDept" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h6 id="modalDeptTitle" class="modal-title">Department</h6>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-        </div>
-        <div class="modal-body">
-          <form id="formDept" class="row g-2">
-            <input type="hidden" id="deptRowId" />
-            <div class="col-12">
-              <label class="form-label">Department *</label>
-              <input id="deptNameInput" class="form-control" required />
-            </div>
-          </form>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button id="btnSaveDept" class="btn btn-primary">Save</button>
-        </div>
-      </div>
+  <div class="modal fade" id="staffModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">Staff</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body row g-3">
+      <input type="hidden" id="staffOriginalId" />
+      <div class="col-md-6"><label class="form-label">StaffID *</label><input id="staffIdEdit" class="form-control" /></div>
+      <div class="col-md-6"><label class="form-label">Name *</label><input id="staffName" class="form-control" /></div>
+      <div class="col-md-6"><label class="form-label">Role *</label><select id="staffRole" class="form-select"><option>User</option><option>Admin</option></select></div>
     </div>
-  </div>
+    <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button id="btnSaveStaff" class="btn btn-primary">Save</button></div>
+  </div></div></div>
 
-  <!-- libs -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/js/bootstrap.bundle.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-
-  <!-- app -->
-  <script src="./assets/js/app.js"></script>
-
-  <!-- API Settings Modal -->
-  <div class="modal fade" id="modalApi" tabindex="-1" aria-labelledby="modalApiLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title" id="modalApiLabel">ตั้งค่า Web App URL</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-        </div>
-        <div class="modal-body">
-          <div class="mb-2">
-            <label class="form-label">Web App URL (Google Apps Script)</label>
-            <input id="apiUrlInput" type="url" class="form-control" placeholder="https://script.google.com/macros/s/.../exec" />
-            <div class="form-text">
-              วิธีดู URL: Deploy &gt; New deployment &gt; Select type: Web app &gt; Copy “Web app URL” (ต้องเป็น <code>/exec</code>)
-            </div>
-          </div>
-          <div class="alert alert-secondary small mb-0">
-            หมายเหตุ: ระบบจะเก็บ URL ไว้ในเบราว์เซอร์ (localStorage) ของเครื่องนี้เท่านั้น
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-light" data-bs-dismiss="modal">ยกเลิก</button>
-          <button type="button" id="btnSaveApiUrl" class="btn btn-primary">บันทึก</button>
-        </div>
-      </div>
+  <div class="modal fade" id="departmentModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">Department</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <input type="hidden" id="departmentOriginalName" />
+      <label class="form-label">Department *</label><input id="departmentNameEdit" class="form-control" />
     </div>
-  </div>
+    <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button id="btnSaveDepartment" class="btn btn-primary">Save</button></div>
+  </div></div></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/app.js"></script>
 </body>
 </html>
