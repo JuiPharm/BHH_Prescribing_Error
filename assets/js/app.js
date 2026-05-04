@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  const CONFIG = Object.assign({ API_URL: '', API_MODE: 'jsonp', LOCK_API_URL: false, VERSION: 'dev' }, window.PE_CONFIG || {});
+  const CONFIG = Object.assign({ API_URL: '', API_MODE: 'jsonp', LOCK_API_URL: false, VERSION: 'druggroup-fix-2026-05-04' }, window.PE_CONFIG || {});
   const API_URL_STORAGE_KEY = 'pe_api_url';
   const API_CACHE_TTL = { getReferenceData: 10 * 60 * 1000, getVisualization: 90 * 1000, getMedicationIndex: 30 * 60 * 1000 };
 
@@ -407,7 +407,9 @@
     barChart('chartProcess', ag.byProcess || [], 'label', 'count', { indexAxis: 'y', limit: 12 });
     lineChart('chartMonth', ag.byMonth || [], 'label', 'count');
     barChart('chartDrugGroup', ag.byDrugGroup || [], 'label', 'count', { indexAxis: 'y', limit: 20 });
+    barChart('chartDrugName', ag.byDrugName || [], 'label', 'count', { indexAxis: 'y', limit: 20 });
     barChart('chartDoctor', ag.byDoctor || [], 'label', 'count', { indexAxis: 'y', limit: 20 });
+    renderDrugGroupSeverityMatrix('drugGroupSeverityMatrix', ag.drugGroupBySeverity || []);
     renderTwoSeriesBars('consultBySourceBars', ag.consultBySource || [], 'adjusted', 'notAdjusted', 'ปรับแผน', 'ยืนยันเดิม');
     renderTwoSeriesBars('errorTypeBySourceBars', ag.errorTypeBySource || [], 'medRec', 'other', 'Med Rec/Home Med', 'Other');
   }
@@ -442,6 +444,18 @@
       div.innerHTML = `<div class="label-line"><strong>${escapeHtml(r.source || '-')}</strong><span>${total}</span></div><div class="bar"><span class="seg-a" style="width:${pa}%"></span><span class="seg-b" style="width:${100 - pa}%"></span></div>`;
       el.appendChild(div);
     });
+  }
+  function renderDrugGroupSeverityMatrix(id, rows) {
+    const el = $(id); if (!el) return;
+    const severityOrder = ['A-B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
+    if (!Array.isArray(rows) || !rows.length) { el.innerHTML = '<div class="text-muted small">ไม่พบข้อมูล</div>'; return; }
+    const html = [`<table class="table table-sm align-middle mb-0"><thead><tr><th>Drug Group</th><th class="text-end">Total</th>${severityOrder.map(s => `<th class="text-end">${escapeHtml(s)}</th>`).join('')}</tr></thead><tbody>`];
+    rows.forEach(r => {
+      const sev = r.severity || {};
+      html.push(`<tr><td>${escapeHtml(r.label || '-')}</td><td class="text-end fw-semibold">${Number(r.total) || 0}</td>${severityOrder.map(s => `<td class="text-end">${Number(sev[s]) || 0}</td>`).join('')}</tr>`);
+    });
+    html.push('</tbody></table>');
+    el.innerHTML = html.join('');
   }
   function exportXlsx() {
     if (!window.XLSX) return toast('ไม่พบ XLSX library', 'error');
