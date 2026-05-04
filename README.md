@@ -65,3 +65,7 @@ YOUR_WEB_APP_URL?action=getVisualization&callback=testCallback
 ## หมายเหตุด้านประสิทธิภาพ
 
 Google Sheets ยังเหมาะกับข้อมูลระดับเล็กถึงกลางและทีม internal ถ้าข้อมูล PrescribingErrors เติบโตมากกว่า 10,000-30,000 rows หรือมีผู้ใช้งาน dashboard พร้อมกันหลายคน ควรพิจารณาย้ายไป Supabase/Postgres เพื่อ query/filter/aggregate ได้เร็วกว่าและเสถียรกว่า
+
+## Patch 2026-05-04: Reporter Search
+
+ปรับช่อง `ผู้รายงาน` จาก dropdown เป็นช่องค้นหาแบบเดียวกับ `รายชื่อแพทย์` โดยค้นได้จาก StaffID / Name / Role และบันทึกค่าเป็น `ReporterStaffID` เหมือน schema เดิม จึงไม่ต้อง migration Google Sheet

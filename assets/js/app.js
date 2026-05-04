@@ -13,6 +13,7 @@
   const state = {
     ref: { departments: [], doctors: [], staff: [], lists: {} },
     selectedDoctor: null,
+    selectedReporter: null,
     selectedDrug1: null,
     selectedDrug2: null,
     medIndex: null,
@@ -158,8 +159,19 @@
   }
 
   function uniqueSorted(values) { return Array.from(new Set((values || []).map(v => String(v || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b)); }
+
+  function staffIdOf(s) { return String(s?.staffId ?? s?.StaffID ?? s?.staff_id ?? s?.id ?? '').trim(); }
+  function staffNameOf(s) { return String(s?.name ?? s?.Name ?? s?.staffName ?? s?.staff_name ?? '').trim(); }
+  function staffRoleOf(s) { return String(s?.role ?? s?.Role ?? 'User').trim() || 'User'; }
+  function normalizeStaffList(list) {
+    return (Array.isArray(list) ? list : [])
+      .map(s => ({ staffId: staffIdOf(s), name: staffNameOf(s), role: staffRoleOf(s) }))
+      .filter(s => s.staffId && s.name);
+  }
+
   function renderReferenceData(ref) {
     state.ref = ref || { departments: [], doctors: [], staff: [], lists: {} };
+    state.ref.staff = normalizeStaffList(state.ref.staff);
     const lists = state.ref.lists || {};
     renderOptions($('prescribingErrorFrom'), lists.prescribingErrorFrom || [], { placeholder: 'เลือก…' });
     renderOptions($('consult'), lists.consultResults || [], { placeholder: 'เลือก…' });
@@ -170,7 +182,9 @@
     renderOptions($('subclass'), lists.subclasses || [], { placeholder: 'เลือก…' });
     renderOptions($('severityLevel'), lists.severityLevels || [], { placeholder: 'เลือก…' });
     renderOptions($('department'), state.ref.departments || [], { placeholder: 'เลือกแผนก…' });
-    renderOptions($('reporter'), (state.ref.staff || []).map(s => ({ value: s.staffId, label: `${s.staffId} - ${s.name}` })), { placeholder: 'เลือกผู้รายงาน…', valueKey: 'value', labelKey: 'label' });
+    state.selectedReporter = null;
+    const reporterInput = $('reporter');
+    if (reporterInput && reporterInput.tagName !== 'SELECT') reporterInput.value = '';
     renderOptions($('doctorDept'), state.ref.departments || [], { placeholder: '-' });
 
     renderVizList('vizDept', 'All departments', state.ref.departments || []);
@@ -201,7 +215,7 @@
       department: $('department')?.value.trim() || '', doctor: state.selectedDoctor?.name || $('doctorSearch')?.value.trim() || '',
       specialty: $('specialty')?.value.trim() || '', doctorType: $('doctorType')?.value.trim() || '',
       errorDetails: $('errorDetails')?.value.trim() || '', consult: $('consult')?.value.trim() || '', errorType: $('errorType')?.value.trim() || '',
-      medicationReconciliation: $('medicationReconciliation')?.value.trim() || '', reporter: $('reporter')?.value.trim() || '',
+      medicationReconciliation: $('medicationReconciliation')?.value.trim() || '', reporter: getReporterStaffId(), reporterInput: $('reporter')?.value.trim() || '',
       drug1: $('drug1')?.value.trim() || '', drug2: $('drug2')?.value.trim() || '',
       drugGroup: $('drugGroup')?.value.trim() || '', subclass: $('subclass')?.value.trim() || '', severityLevel: $('severityLevel')?.value.trim() || '',
       clientVersion: CONFIG.VERSION, userAgent: navigator.userAgent
@@ -210,6 +224,7 @@
   function validateReport(p) {
     const required = [['prescribingErrorFrom','Prescribing Error จาก'],['hn','HN'],['eventDate','วันที่เกิดเหตุการณ์'],['eventTime','เวลา'],['department','Department'],['doctor','รายชื่อแพทย์'],['errorDetails','รายละเอียด'],['consult','Consult'],['errorType','ประเภท'],['medicationReconciliation','Process'],['reporter','ผู้รายงาน'],['drug1','ยา 1'],['drugGroup','กลุ่มยา'],['severityLevel','Severity']];
     const missing = required.filter(([k]) => !String(p[k] || '').trim()).map(([, label]) => label);
+    if (p.reporterInput && !p.reporter) return 'กรุณาเลือกผู้รายงานจากรายการ Staff ที่ระบบแสดงขึ้นมา';
     if (missing.length) return 'กรอกข้อมูลไม่ครบ: ' + missing.join(', ');
     if (!/^07-\d{2}-\d{6}$/.test(p.hn)) return 'HN ไม่ถูกต้อง (ต้องเป็น 07-XX-YYYYYY)';
     return '';
@@ -217,8 +232,8 @@
   function resetReportForm() {
     $('reportForm')?.reset();
     ['prescribingErrorFrom','hn','eventDate','eventTime','department','doctorSearch','specialty','doctorType','errorDetails','consult','errorType','medicationReconciliation','reporter','drug1','drug2','drugGroup','subclass','severityLevel'].forEach(id => { const el = $(id); if (el) el.value = ''; });
-    ['doctorSuggest','drug1Suggest','drug2Suggest'].forEach(id => { const el = $(id); if (el) el.style.display = 'none'; });
-    state.selectedDoctor = state.selectedDrug1 = state.selectedDrug2 = null;
+    ['doctorSuggest','reporterSuggest','drug1Suggest','drug2Suggest'].forEach(id => { const el = $(id); if (el) el.style.display = 'none'; });
+    state.selectedDoctor = state.selectedReporter = state.selectedDrug1 = state.selectedDrug2 = null;
     $('prescribingErrorFrom')?.focus();
   }
 
@@ -238,35 +253,129 @@
   }
   function highlight(text, q) { const raw = String(text || ''); const query = String(q || '').trim(); if (!raw || !query) return escapeHtml(raw); return escapeHtml(raw).replace(new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'ig'), m => `<mark>${m}</mark>`); }
 
+  function formatStaffLabel(s) {
+    if (!s) return '';
+    return [staffIdOf(s), staffNameOf(s)].map(v => String(v || '').trim()).filter(Boolean).join(' - ');
+  }
+  function reporterQuery(q) {
+    const key = normalize(q);
+    if (!key) return [];
+    return (state.ref.staff || [])
+      .filter(s => normalize(`${staffIdOf(s)} ${staffNameOf(s)} ${staffRoleOf(s)}`).includes(key))
+      .slice(0, 12);
+  }
+  function findReporterMatch(value) {
+    const key = normalize(value);
+    if (!key) return null;
+    return (state.ref.staff || []).find(s =>
+      normalize(staffIdOf(s)) === key ||
+      normalize(staffNameOf(s)) === key ||
+      normalize(formatStaffLabel(s)) === key
+    ) || null;
+  }
+  function setReporter(s) {
+    state.selectedReporter = s || null;
+    const input = $('reporter');
+    if (input) input.value = s ? formatStaffLabel(s) : '';
+  }
+  function getReporterStaffId() {
+    const input = $('reporter');
+    const raw = input?.value.trim() || '';
+    if (!raw) {
+      state.selectedReporter = null;
+      return '';
+    }
+    if (state.selectedReporter) {
+      const selectedLabel = formatStaffLabel(state.selectedReporter);
+      if ([selectedLabel, staffIdOf(state.selectedReporter), staffNameOf(state.selectedReporter)].some(v => normalize(v) === normalize(raw))) {
+        return staffIdOf(state.selectedReporter) || '';
+      }
+    }
+    const matched = findReporterMatch(raw);
+    if (matched) {
+      setReporter(matched);
+      return staffIdOf(matched) || '';
+    }
+    return '';
+  }
+
   let medIndexPromise = null;
   async function prefetchMedicationIndex() {
     if (Array.isArray(state.medIndex)) return state.medIndex;
     if (medIndexPromise) return medIndexPromise;
     medIndexPromise = apiGet('getMedicationIndex', {}, { useCache: true }).then(res => {
-      state.medIndex = (res.items || []).map(it => Object.assign({}, it, { search: normalizeSearch(`${it.displayName || ''} ${it.genericName || ''} ${it.brandName || ''} ${it.form || ''}`) }));
+      const rows = Array.isArray(res?.items) ? res.items : [];
+      state.medIndex = rows.map(normalizeMedicationItem).filter(it => it.displayName || it.genericName || it.brandName);
       return state.medIndex;
     }).catch(() => { state.medIndex = []; return []; });
     return medIndexPromise;
   }
-  function searchMedicationLocal(q) {
-    const key = normalizeSearch(q); if (key.length < 2 || !Array.isArray(state.medIndex)) return [];
-    return state.medIndex.map(it => ({ it, score: scoreMedication(it, key) })).filter(x => x.score > 0).sort((a, b) => b.score - a.score).slice(0, 12).map(x => x.it);
+  function medicationValueOf(item, keys) {
+    for (const key of keys) {
+      const value = item && item[key];
+      if (value !== undefined && value !== null && String(value).trim()) return String(value).trim();
+    }
+    return '';
   }
-  function scoreMedication(it, key) {
-    const d = normalizeSearch(it.displayName), g = normalizeSearch(it.genericName), b = normalizeSearch(it.brandName);
-    if (d === key || g === key || b === key) return 1000;
-    if (d.startsWith(key)) return 900; if (g.startsWith(key)) return 860; if (b.startsWith(key)) return 840;
-    if (d.includes(key)) return 720; if (g.includes(key)) return 680; if (b.includes(key)) return 660;
-    if (it.search?.includes(key)) return 520; return 0;
+  function normalizeMedicationItem(item) {
+    const genericName = medicationValueOf(item, ['genericName', 'GenericName', 'generic', 'Generic']);
+    const brandName = medicationValueOf(item, ['brandName', 'BrandName', 'brand', 'Brand']);
+    const form = medicationValueOf(item, ['form', 'Form', 'dosageForm', 'DosageForm']);
+    const displayName = medicationValueOf(item, ['displayName', 'DisplayName', 'name', 'Name']) || [genericName, brandName, form].filter(Boolean).join(' ');
+    const drugGroup = medicationValueOf(item, ['drugGroup', 'DrugGroup', 'majorClass', 'MajorClass']);
+    const subclass = medicationValueOf(item, ['subclass', 'Subclass', 'subClass', 'SubClass']);
+    const code = medicationValueOf(item, ['code', 'Code', 'drugCode', 'DrugCode', 'itemCode', 'ItemCode']);
+    const searchText = normalizeSearch([displayName, genericName, brandName, form, drugGroup, subclass, code].join(' '));
+    return Object.assign({}, item, { displayName, genericName, brandName, form, drugGroup, subclass, code, search: searchText });
+  }
+  function searchMedicationLocal(q) {
+    const key = normalizeSearch(q);
+    if (!key || !Array.isArray(state.medIndex)) return [];
+    const terms = key.split(' ').filter(Boolean);
+    return state.medIndex
+      .map(it => ({ it, score: scoreMedication(it, key, terms) }))
+      .filter(x => x.score > 0)
+      .sort((a, b) => b.score - a.score || String(a.it.displayName || '').localeCompare(String(b.it.displayName || '')))
+      .slice(0, 15)
+      .map(x => x.it);
+  }
+  function scoreMedication(it, key, terms) {
+    const d = normalizeSearch(it.displayName), g = normalizeSearch(it.genericName), b = normalizeSearch(it.brandName), c = normalizeSearch(it.code);
+    if (d === key || g === key || b === key || c === key) return 1200;
+    if (d.startsWith(key)) return 1050;
+    if (g.startsWith(key)) return 1000;
+    if (b.startsWith(key)) return 960;
+    if (c.startsWith(key)) return 940;
+    if (d.includes(key)) return 850;
+    if (g.includes(key)) return 800;
+    if (b.includes(key)) return 760;
+    if (it.search?.includes(key)) return 620;
+    if (terms.length > 1 && terms.every(t => it.search?.includes(t))) return 540;
+    return 0;
+  }
+  function formatMedicationLabel(item) {
+    const main = item?.displayName || item?.genericName || item?.brandName || '';
+    const meta = [item?.genericName, item?.brandName, item?.form].filter(Boolean).join(' • ');
+    return { main, meta };
   }
   function selectDrug(slot, item) {
-    state[slot === 1 ? 'selectedDrug1' : 'selectedDrug2'] = item;
-    const input = $(slot === 1 ? 'drug1' : 'drug2'); if (input) input.value = item.displayName || '';
+    const normalized = normalizeMedicationItem(item || {});
+    state[slot === 1 ? 'selectedDrug1' : 'selectedDrug2'] = normalized;
+    const input = $(slot === 1 ? 'drug1' : 'drug2'); if (input) input.value = normalized.displayName || '';
+    const suggest = $(slot === 1 ? 'drug1Suggest' : 'drug2Suggest'); if (suggest) suggest.style.display = 'none';
     if (slot === 1) {
       const dg = $('drugGroup'); const sc = $('subclass');
-      if (dg) { if (![...dg.options].some(o => o.value === (item.drugGroup || ''))) dg.add(new Option(item.drugGroup || '', item.drugGroup || '')); dg.value = item.drugGroup || ''; }
-      if (sc) { if (![...sc.options].some(o => o.value === (item.subclass || ''))) sc.add(new Option(item.subclass || '', item.subclass || '')); sc.value = item.subclass || ''; }
+      if (dg) { if (normalized.drugGroup && ![...dg.options].some(o => o.value === normalized.drugGroup)) dg.add(new Option(normalized.drugGroup, normalized.drugGroup)); dg.value = normalized.drugGroup || ''; }
+      if (sc) { if (normalized.subclass && ![...sc.options].some(o => o.value === normalized.subclass)) sc.add(new Option(normalized.subclass, normalized.subclass)); sc.value = normalized.subclass || ''; }
     }
+  }
+  function autoSelectMedicationIfExact(slot) {
+    const input = $(slot === 1 ? 'drug1' : 'drug2');
+    const raw = input?.value.trim() || '';
+    if (!raw || !Array.isArray(state.medIndex)) return;
+    const key = normalizeSearch(raw);
+    const exact = state.medIndex.find(it => [it.displayName, it.genericName, it.brandName, it.code].some(v => normalizeSearch(v) === key));
+    if (exact) selectDrug(slot, exact);
   }
 
   function getVizParams() {
@@ -364,7 +473,31 @@
     let doctorTimer; $('doctorSearch')?.addEventListener('input', () => { clearTimeout(doctorTimer); doctorTimer = setTimeout(() => { const q = $('doctorSearch').value; showSuggest('doctorSuggest', doctorQuery(q), d => `<strong>${highlight(d.name, q)}</strong><div class="small text-muted">${escapeHtml(d.department || '-')} • ${escapeHtml(d.specialty || '-')} • ${escapeHtml(d.type || '-')}</div>`, d => { state.selectedDoctor = d; $('doctorSearch').value = d.name || ''; $('specialty').value = d.specialty || ''; $('doctorType').value = d.type || ''; }); }, 120); });
     $('department')?.addEventListener('change', () => { state.selectedDoctor = null; $('doctorSearch').value = ''; $('specialty').value = ''; $('doctorType').value = ''; });
 
-    ['drug1', 'drug2'].forEach((id, idx) => { let timer; const slot = idx + 1; $(id)?.addEventListener('focus', prefetchMedicationIndex); $(id)?.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(async () => { await prefetchMedicationIndex(); const q = $(id).value; showSuggest(id + 'Suggest', searchMedicationLocal(q), it => `<strong>${highlight(it.displayName, q)}</strong><div class="small text-muted">${escapeHtml(it.genericName || '-')} • ${escapeHtml(it.brandName || '-')} • ${escapeHtml(it.drugGroup || '-')}</div>`, it => selectDrug(slot, it)); }, 180); }); });
+    let reporterTimer; $('reporter')?.addEventListener('input', () => { state.selectedReporter = null; clearTimeout(reporterTimer); reporterTimer = setTimeout(() => { const q = $('reporter').value; showSuggest('reporterSuggest', reporterQuery(q), s => `<strong>${highlight(formatStaffLabel(s), q)}</strong><div class="small text-muted">Role: ${escapeHtml(staffRoleOf(s))}</div>`, setReporter); }, 120); });
+
+    ['drug1', 'drug2'].forEach((id, idx) => {
+      let timer; const slot = idx + 1;
+      $(id)?.addEventListener('focus', prefetchMedicationIndex);
+      $(id)?.addEventListener('input', () => {
+        state[slot === 1 ? 'selectedDrug1' : 'selectedDrug2'] = null;
+        if (slot === 1) { const dg = $('drugGroup'); const sc = $('subclass'); if (dg) dg.value = ''; if (sc) sc.value = ''; }
+        clearTimeout(timer);
+        timer = setTimeout(async () => {
+          await prefetchMedicationIndex();
+          const q = $(id).value;
+          showSuggest(
+            id + 'Suggest',
+            searchMedicationLocal(q),
+            it => {
+              const label = formatMedicationLabel(it);
+              return `<strong>${highlight(label.main, q)}</strong><div class="small text-muted">${escapeHtml(label.meta || '-')} • ${escapeHtml(it.drugGroup || '-')} • ${escapeHtml(it.subclass || '-')}</div>`;
+            },
+            it => selectDrug(slot, it)
+          );
+        }, 140);
+      });
+      $(id)?.addEventListener('blur', () => setTimeout(() => autoSelectMedicationIfExact(slot), 160));
+    });
 
     $('btnRefreshViz')?.addEventListener('click', () => loadVisualization(true).catch(e => toast(e.message, 'error')));
     $('btnApplyViz')?.addEventListener('click', () => loadVisualization(false).catch(e => toast(e.message, 'error')));
@@ -379,7 +512,15 @@
     $('btnSaveDoctor')?.addEventListener('click', saveDoctor);
     $('btnSaveStaff')?.addEventListener('click', saveStaff);
     $('btnSaveDepartment')?.addEventListener('click', saveDepartment);
-    document.addEventListener('click', (e) => handleManageActions(e));
+    document.addEventListener('click', (e) => {
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      if (!target.closest('#doctorSearch') && !target.closest('#doctorSuggest')) { const b = $('doctorSuggest'); if (b) b.style.display = 'none'; }
+      if (!target.closest('#reporter') && !target.closest('#reporterSuggest')) { const b = $('reporterSuggest'); if (b) b.style.display = 'none'; }
+      if (!target.closest('#drug1') && !target.closest('#drug1Suggest')) { const b = $('drug1Suggest'); if (b) b.style.display = 'none'; }
+      if (!target.closest('#drug2') && !target.closest('#drug2Suggest')) { const b = $('drug2Suggest'); if (b) b.style.display = 'none'; }
+      handleManageActions(e);
+    });
   }
   function showView(view) {
     document.querySelectorAll('.app-view').forEach(el => el.classList.add('d-none'));
