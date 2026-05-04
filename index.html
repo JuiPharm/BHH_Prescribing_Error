@@ -100,9 +100,11 @@
                   <div class="form-text">รวม Med Rec Admission / Med Rec Transfer / Med Rec Discharge / Home Med</div>
                 </div>
 
-                <div class="col-md-4">
+                <div class="col-md-4 position-relative">
                   <label class="form-label">ผู้รายงาน <span class="text-danger">*</span></label>
-                  <select id="reporter" class="form-select" required></select>
+                  <input id="reporter" class="form-control" autocomplete="off" placeholder="พิมพ์ StaffID หรือชื่อผู้รายงาน" required />
+                  <div id="reporterSuggest" class="suggest-box"></div>
+                  <div class="form-text">พิมพ์คำค้นแล้วเลือกผู้รายงานจากฐาน Staff</div>
                 </div>
                 <div class="col-md-4 position-relative">
                   <label class="form-label">ยาที่เกิด Prescribing Error ตัวที่ 1 <span class="text-danger">*</span></label>
