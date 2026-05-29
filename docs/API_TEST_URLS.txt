@@ -1,0 +1,13 @@
+Replace YOUR_WEB_APP_URL with the deployed Apps Script /exec URL.
+
+Health check:
+YOUR_WEB_APP_URL?action=health&callback=testCallback
+
+Reference data:
+YOUR_WEB_APP_URL?action=getReferenceData&callback=testCallback
+
+Medication index:
+YOUR_WEB_APP_URL?action=getMedicationIndex&callback=testCallback
+
+Visualization:
+YOUR_WEB_APP_URL?action=getVisualization&payload={}&callback=testCallback
