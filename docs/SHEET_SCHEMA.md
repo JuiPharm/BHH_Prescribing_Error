@@ -1,87 +1,79 @@
-# Google Sheet Schema
+# Sheet Schema
 
-ระบบใช้ชีตหลักดังนี้
+Apps Script จะ auto-create sheet/header ถ้าไม่พบ
 
 ## department
 
-| Column | Header |
-|---|---|
-| A | Department |
+| Column |
+|---|
+| Department |
 
 ## Staff
 
-| Column | Header | Rule |
-|---|---|---|
-| A | StaffID | Text, 6 alphanumeric characters |
-| B | Name | Text |
-| C | Role | User หรือ Admin |
+| Column | Note |
+|---|---|
+| StaffID | unique |
+| Name |  |
+| Role | User / Admin |
 
 ## Doctor
 
-| Column | Header |
-|---|---|
-| A | Name |
-| B | Department |
-| C | Specialty |
-| D | Type |
+| Column |
+|---|
+| Name |
+| Department |
+| Specialty |
+| Type |
 
 ## Medication
 
-| Column | Header |
+| Column | Note |
 |---|---|
-| A | GenericName |
-| B | BrandName |
-| C | Form |
-| D | DisplayName |
-| E | DrugGroup |
-| F | Subclass |
-
-## Lists
-
-| Column | Header |
-|---|---|
-| A | Category |
-| B | Value |
-| C | SortOrder |
+| GenericName |  |
+| BrandName |  |
+| Form |  |
+| DisplayName | ใช้แสดงใน drug search |
+| DrugGroup | auto-fill จาก Drug 1 |
+| Subclass | auto-fill จาก Drug 1 |
 
 ## PrescribingErrors
 
-| Column | Header | Rule |
-|---|---|---|
-| A | Timestamp | DateTime |
-| B | ReportID | Text |
-| C | PrescribingErrorFrom | IV CHEMO / OPD PHARMACY PHARMACY / IPD PHARMACY PHARMACY |
-| D | HN | Text, `07-XX-XXXXXX` |
-| E | EventDate | Date |
-| F | EventTime | Time/Text |
-| G | Department | Text |
-| H | Doctor | Text |
-| I | Specialty | Text |
-| J | DoctorType | Text |
-| K | ErrorDetails | Text |
-| L | Consult | Text |
-| M | ErrorType | Text |
-| N | MedicationReconciliation | Text |
-| O | ReporterStaffID | Text, 6 characters |
-| P | Drug1 | Text |
-| Q | Drug2 | Text |
-| R | DrugGroup | Text |
-| S | Subclass | Text |
-| T | SeverityLevel | Text |
-| U | CreatedBy | Text |
-| V | ClientVersion | Text |
-| W | UserAgent | Text |
+| Column |
+|---|
+| Timestamp |
+| ReportID |
+| PrescribingErrorFrom |
+| HN |
+| EventDate |
+| EventTime |
+| Department |
+| Doctor |
+| Specialty |
+| DoctorType |
+| ErrorDetails |
+| Consult |
+| ErrorType |
+| MedicationReconciliation |
+| ReporterStaffID |
+| Drug1 |
+| Drug2 |
+| DrugGroup |
+| Subclass |
+| SeverityLevel |
+| CreatedBy |
+| ClientVersion |
+| UserAgent |
 
 ## AuditLog
 
-| Column | Header |
-|---|---|
-| A | Timestamp |
-| B | Actor |
-| C | Action |
-| D | EntityType |
-| E | EntityId |
-| F | Before |
-| G | After |
-| H | Result |
-| I | Message |
+| Column |
+|---|
+| Timestamp |
+| Actor |
+| Action |
+| EntityType |
+| EntityId |
+| Before |
+| After |
+| Result |
+| Message |

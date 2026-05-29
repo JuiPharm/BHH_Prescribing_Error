@@ -1,283 +1,314 @@
 <!doctype html>
 <html lang="th">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="BHH Prescribing Error Reporting">
-  <meta name="theme-color" content="#2166d1">
-  <title>PE Prescribing Error Bangkok Hospital Hatyai</title>
-  <link rel="preconnect" href="https://script.google.com" crossorigin>
-  <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
-  <link rel="stylesheet" href="assets/css/styles.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Prescribing Error Reporting</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/styles.css" />
 </head>
 <body>
-  <header>
-    <div class="header-inner">
-      <div class="brand">
-        <div class="brand-mark">PE</div>
-        <div>
-          <div class="brand-title">PE Prescribing Error Bangkok Hospital Hatyai</div>
-          <div class="brand-subtitle">Medication Safety Reporting</div>
-        </div>
+  <nav class="navbar navbar-expand-lg app-navbar sticky-top">
+    <div class="container-fluid px-3 px-lg-4">
+      <a class="navbar-brand d-flex align-items-center gap-2" href="#home" data-view-link="home">
+        <span class="brand-mark">PE</span>
+        <span>
+          <strong>Prescribing Error</strong>
+          <small class="d-block">Bangkok Hospital Hatyai</small>
+        </span>
+      </a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#topNav"><span class="navbar-toggler-icon"></span></button>
+      <div class="collapse navbar-collapse" id="topNav">
+        <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
+          <li class="nav-item"><a class="nav-link active" href="#home" data-view-link="home">หน้าหลัก</a></li>
+          <li class="nav-item"><a class="nav-link" href="#manage" data-view-link="manage">Manage Data</a></li>
+          <li class="nav-item"><a class="nav-link" href="#visualization" data-view-link="visualization">Visualization</a></li>
+        </ul>
+        <button id="btnApiSettings" class="btn btn-sm btn-outline-light ms-lg-3" data-bs-toggle="modal" data-bs-target="#apiModal">ตั้งค่า API</button>
       </div>
-      <nav class="nav" aria-label="Main navigation">
-        <button type="button" data-nav="home" class="active">หน้าหลัก</button>
-        <button type="button" data-nav="manage">Manage Data</button>
-        <button type="button" data-nav="visualization">Visualization</button>
-        <button type="button" id="openApiSettings">ตั้งค่า API</button>
-      </nav>
     </div>
-  </header>
+  </nav>
 
-  <main>
-    <section id="view-home" class="view active">
-      <div class="grid two">
-        <div class="card">
-          <h1>บันทึกรายงาน Prescribing Error</h1>
-          <p class="muted">ระบบบันทึกข้อมูลลง Google Sheet ผ่าน Google Apps Script API</p>
-          <div class="actions" style="margin: 0 0 16px;">
-            <button type="button" class="btn" id="refreshReference">รีเฟรชข้อมูลอ้างอิง</button>
+  <main class="container-fluid px-3 px-lg-4 py-4">
+    <section id="view-home" class="app-view">
+      <div class="row g-4">
+        <div class="col-12 col-xl-8">
+          <div class="card app-card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <div>
+                <p class="eyebrow mb-1">Medication Safety</p>
+                <h1 class="h4 mb-0">บันทึกรายงาน Prescribing Error</h1>
+              </div>
+              <button id="btnRefreshRef" class="btn btn-sm btn-outline-primary">รีเฟรชข้อมูลอ้างอิง</button>
+            </div>
+            <div class="card-body">
+              <form id="reportForm" class="row g-3" novalidate>
+                <div class="col-md-4">
+                  <label class="form-label">Prescribing Error จาก <span class="text-danger">*</span></label>
+                  <select id="prescribingErrorFrom" class="form-select" required></select>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">HN <span class="text-danger">*</span></label>
+                  <input id="hn" class="form-control" placeholder="07-XX-YYYYYY" required />
+                  <div class="form-text">รูปแบบ: 07-XX-YYYYYY</div>
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label">วันที่เกิดเหตุการณ์ <span class="text-danger">*</span></label>
+                  <input id="eventDate" type="date" class="form-control" required />
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label">เวลาที่เกิดเหตุการณ์ <span class="text-danger">*</span></label>
+                  <input id="eventTime" type="time" class="form-control" required />
+                </div>
+
+                <div class="col-md-4">
+                  <label class="form-label">Department <span class="text-danger">*</span></label>
+                  <select id="department" class="form-select" required></select>
+                </div>
+                <div class="col-md-4 position-relative">
+                  <label class="form-label">รายชื่อแพทย์ <span class="text-danger">*</span></label>
+                  <input id="doctorSearch" class="form-control" autocomplete="off" placeholder="พิมพ์เพื่อค้นหาแพทย์" required />
+                  <div id="doctorSuggest" class="suggest-box"></div>
+                  <div class="form-text">ระบบเติม Specialty และ Full-time/Part-time ให้อัตโนมัติจากฐาน Doctor</div>
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label">Specialty</label>
+                  <input id="specialty" class="form-control app-system-filled" readonly />
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label">Full-time / Part-time</label>
+                  <input id="doctorType" class="form-control app-system-filled" readonly />
+                </div>
+
+                <div class="col-12">
+                  <label class="form-label">ระบุรายละเอียดของการเกิด Prescribing Error <span class="text-danger">*</span></label>
+                  <textarea id="errorDetails" class="form-control" rows="3" required></textarea>
+                </div>
+
+                <div class="col-md-4">
+                  <label class="form-label">Consult <span class="text-danger">*</span></label>
+                  <select id="consult" class="form-select" required></select>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">ประเภทของ Prescribing Error <span class="text-danger">*</span></label>
+                  <select id="errorType" class="form-select" required></select>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Process ที่ตรวจพบ Prescribing Error <span class="text-danger">*</span></label>
+                  <select id="medicationReconciliation" class="form-select" required></select>
+                  <div class="form-text">รวม Med Rec Admission / Med Rec Transfer / Med Rec Discharge / Home Med</div>
+                </div>
+
+                <div class="col-md-4 position-relative">
+                  <label class="form-label">ผู้รายงาน <span class="text-danger">*</span></label>
+                  <input id="reporter" class="form-control" autocomplete="off" placeholder="พิมพ์ StaffID หรือชื่อผู้รายงาน" required />
+                  <div id="reporterSuggest" class="suggest-box"></div>
+                  <div class="form-text">พิมพ์คำค้นแล้วเลือกผู้รายงานจากฐาน Staff</div>
+                </div>
+                <div class="col-md-4 position-relative">
+                  <label class="form-label">ยาที่เกิด Prescribing Error ตัวที่ 1 <span class="text-danger">*</span></label>
+                  <input id="drug1" class="form-control" autocomplete="off" placeholder="พิมพ์บางส่วนของชื่อยา เช่น para, amlo, cef" required />
+                  <div id="drug1Suggest" class="suggest-box"></div>
+                  <div class="form-text">พิมพ์บางส่วนแล้วเลือกจากรายการ ระบบจะเติมกลุ่มยาและ Subclass ให้อัตโนมัติ</div>
+                </div>
+                <div class="col-md-4 position-relative">
+                  <label class="form-label">ยาที่เกิด Prescribing Error ตัวที่ 2</label>
+                  <input id="drug2" class="form-control" autocomplete="off" placeholder="พิมพ์บางส่วนของชื่อยา ตัวที่ 2 ถ้ามี" />
+                  <div id="drug2Suggest" class="suggest-box"></div>
+                  <div class="form-text">รองรับการค้นจากชื่อสามัญ / ชื่อการค้า / รูปแบบยา</div>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">กลุ่มของยา <span class="text-danger">*</span></label>
+                  <select id="drugGroup" class="form-select app-system-filled" disabled required></select>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Subclass (กลุ่มย่อย)</label>
+                  <select id="subclass" class="form-select app-system-filled" disabled></select>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">SEVERITY LEVEL <span class="text-danger">*</span></label>
+                  <select id="severityLevel" class="form-select" required></select>
+                </div>
+
+                <div class="col-12 d-flex gap-2 pt-2">
+                  <button id="btnSubmitReport" type="submit" class="btn btn-primary px-4">บันทึก</button>
+                  <button type="button" id="btnResetReport" class="btn btn-outline-secondary">ล้างฟอร์ม</button>
+                </div>
+              </form>
+            </div>
           </div>
-
-          <form id="reportForm" autocomplete="off">
-            <div class="form-grid">
-              <div class="field">
-                <label for="prescribingErrorFrom" class="required">Prescribing Error จาก</label>
-                <select id="prescribingErrorFrom" required></select>
-              </div>
-              <div class="field">
-                <label for="hn" class="required">HN</label>
-                <input id="hn" required inputmode="numeric" placeholder="07-16-003914">
-                <div class="help">รองรับ 07-16-3914 แล้วแปลงเป็น 07-16-003914 อัตโนมัติ</div>
-              </div>
-              <div class="field">
-                <label for="eventDate" class="required">วันที่เกิดเหตุการณ์</label>
-                <input id="eventDate" type="date" required>
-              </div>
-              <div class="field">
-                <label for="eventTime" class="required">เวลาที่เกิดเหตุการณ์</label>
-                <input id="eventTime" type="time" required>
-              </div>
-              <div class="field">
-                <label for="department" class="required">Department</label>
-                <select id="department" required></select>
-              </div>
-              <div class="field">
-                <label for="doctor" class="required">รายชื่อแพทย์</label>
-                <input id="doctor" list="doctorList" required placeholder="พิมพ์ชื่อแพทย์">
-                <datalist id="doctorList"></datalist>
-                <div class="help">ระบบเติม Specialty และ Full-time/Part-time ให้อัตโนมัติจากฐาน Doctor</div>
-              </div>
-              <div class="field">
-                <label for="specialty">Specialty</label>
-                <input id="specialty" readonly>
-              </div>
-              <div class="field">
-                <label for="doctorType">Full-time / Part-time</label>
-                <input id="doctorType" readonly>
-              </div>
-              <div class="field full">
-                <label for="errorDetails" class="required">ระบุรายละเอียดของการเกิด Prescribing Error</label>
-                <textarea id="errorDetails" required></textarea>
-              </div>
-              <div class="field">
-                <label for="consult" class="required">Consult</label>
-                <select id="consult" required></select>
-              </div>
-              <div class="field">
-                <label for="errorType" class="required">ประเภทของ Prescribing Error</label>
-                <select id="errorType" required></select>
-              </div>
-              <div class="field">
-                <label for="medicationReconciliation" class="required">Process ที่ตรวจพบ Prescribing Error</label>
-                <select id="medicationReconciliation" required></select>
-                <div class="help">รวม Med Rec Admission / Transfer / Discharge / Home Med</div>
-              </div>
-              <div class="field">
-                <label for="reporterStaffId" class="required">ผู้รายงาน Staff ID</label>
-                <input id="reporterStaffId" list="staffList" maxlength="6" required placeholder="000001">
-                <datalist id="staffList"></datalist>
-                <div class="help">Staff ID เป็น Text เสมอ และต้องมี 6 ตัวอักษร</div>
-              </div>
-              <div class="field">
-                <label for="drug1" class="required">ยาที่เกิด Prescribing Error ตัวที่ 1</label>
-                <input id="drug1" list="medicationList" required placeholder="พิมพ์บางส่วนแล้วเลือกจากรายการ">
-              </div>
-              <div class="field">
-                <label for="drug2">ยาที่เกิด Prescribing Error ตัวที่ 2</label>
-                <input id="drug2" list="medicationList" placeholder="รองรับการค้นชื่อสามัญ / ชื่อการค้า / รูปแบบยา">
-                <datalist id="medicationList"></datalist>
-              </div>
-              <div class="field">
-                <label for="drugGroup" class="required">กลุ่มของยา</label>
-                <input id="drugGroup" list="drugGroupList" required>
-                <datalist id="drugGroupList"></datalist>
-              </div>
-              <div class="field">
-                <label for="subclass">Subclass (กลุ่มย่อย)</label>
-                <input id="subclass" list="subclassList">
-                <datalist id="subclassList"></datalist>
-              </div>
-              <div class="field">
-                <label for="severityLevel" class="required">SEVERITY LEVEL</label>
-                <select id="severityLevel" required></select>
-              </div>
-            </div>
-            <div class="actions">
-              <button type="submit" class="btn primary" id="submitReportBtn">บันทึก</button>
-              <button type="reset" class="btn">ล้างฟอร์ม</button>
-            </div>
-          </form>
         </div>
 
-        <aside class="grid">
-          <div class="card">
-            <h2>สถานะระบบ</h2>
-            <div class="status-row"><span>API Connection</span><span id="apiStatus" class="badge neutral">Connecting…</span></div>
-            <div class="status-row"><span>Last sync</span><span id="lastSync" class="muted">Loading…</span></div>
-            <div class="status-row"><span>API</span><span id="apiUrlText" aria-hidden="true"></span></div>
-            <div class="actions"><button type="button" id="pingApi" class="btn small">Ping</button></div>
+        <div class="col-12 col-xl-4">
+          <div class="card app-card mb-4">
+            <div class="card-header"><h2 class="h6 mb-0">สถานะระบบ</h2></div>
+            <div class="card-body">
+              <div class="d-flex justify-content-between"><span>API Connection</span><strong id="apiStatusText" class="text-secondary">Not verified</strong></div>
+              <div class="d-flex justify-content-between mt-2"><span>Last sync</span><strong id="lastSync">-</strong></div>
+              <div id="apiUrlHelp" class="small text-muted mt-3">ตั้งค่า Web App URL หรือ Supabase Edge Function URL ในไฟล์ assets/js/config.js</div>
+              <div id="apiUrlText" class="small code-pill mt-2"></div>
+              <button id="btnPing" class="btn btn-sm btn-outline-primary mt-3">Ping</button>
+            </div>
           </div>
-          <div class="card">
-            <h2>คำแนะนำ</h2>
-            <ul class="quick-list">
-              <li>ระบบค้นหายาจาก local medication index เพื่อลด API round-trip</li>
-              <li>Visualization ใช้ backend aggregation + cache เพื่อลดเวลารอ</li>
-              <li>Manage Data ต้องยืนยัน Admin StaffID ก่อนเพิ่ม/แก้ไข/ลบ</li>
-            </ul>
+          <div class="card app-card">
+            <div class="card-header"><h2 class="h6 mb-0">คำแนะนำ</h2></div>
+            <div class="card-body small text-muted">
+              <ul class="mb-0">
+                <li>ระบบค้นหายาจาก local medication index เพื่อลด API round-trip</li>
+                <li>Visualization ใช้ backend aggregation + cache เพื่อลดเวลารอ</li>
+                <li>Manage Data ต้องยืนยัน Admin StaffID ก่อนเพิ่ม/แก้ไข/ลบ</li>
+              </ul>
+            </div>
           </div>
-        </aside>
+        </div>
       </div>
     </section>
 
-    <section id="view-manage" class="view">
-      <div class="card">
-        <h1>Reference Data</h1>
-        <p class="muted">Doctors / Staff / Departments</p>
-        <div class="form-grid">
-          <div class="field">
-            <label for="adminStaffId">Admin StaffID</label>
-            <input id="adminStaffId" maxlength="6" placeholder="000001">
+    <section id="view-manage" class="app-view d-none">
+      <div class="card app-card">
+        <div class="card-header d-lg-flex justify-content-between align-items-center">
+          <div>
+            <p class="eyebrow mb-1">Reference Data</p>
+            <h1 class="h4 mb-0">Doctors / Staff / Departments</h1>
           </div>
-          <div class="field">
-            <label>ตรวจสอบ</label>
-            <div class="actions" style="margin-top:0">
-              <button type="button" class="btn primary" id="verifyAdmin">Verify Admin</button>
-              <span id="adminBadge" class="badge neutral">Not verified</span>
-              <button type="button" class="btn" id="reloadManage">รีโหลด</button>
+          <div class="d-flex gap-2 mt-3 mt-lg-0">
+            <input id="adminStaffId" class="form-control form-control-sm" placeholder="Admin StaffID" style="max-width: 180px" />
+            <button id="btnVerifyAdmin" class="btn btn-sm btn-outline-primary">ตรวจสอบ</button>
+            <span id="adminBadge" class="badge text-bg-secondary align-self-center">Not verified</span>
+            <button id="btnReloadManage" class="btn btn-sm btn-outline-secondary">รีโหลด</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <ul class="nav nav-tabs" id="manageTabs" role="tablist">
+            <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabDoctors" type="button">Doctors</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabStaff" type="button">Staff</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabDepartments" type="button">Departments</button></li>
+          </ul>
+          <div class="tab-content pt-3">
+            <div class="tab-pane fade show active" id="tabDoctors">
+              <div class="d-flex justify-content-between mb-2"><h2 class="h6">รายชื่อแพทย์</h2><button class="btn btn-sm btn-primary" id="btnAddDoctor">Add Doctor</button></div>
+              <div class="table-responsive"><table class="table table-hover align-middle"><thead><tr><th>Name</th><th>Department</th><th>Specialty</th><th>Type</th><th class="text-end">Actions</th></tr></thead><tbody id="doctorTableBody"></tbody></table></div>
+            </div>
+            <div class="tab-pane fade" id="tabStaff">
+              <div class="d-flex justify-content-between mb-2"><h2 class="h6">ผู้ใช้งาน</h2><button class="btn btn-sm btn-primary" id="btnAddStaff">Add Staff</button></div>
+              <div class="table-responsive"><table class="table table-hover align-middle"><thead><tr><th>StaffID</th><th>Name</th><th>Role</th><th class="text-end">Actions</th></tr></thead><tbody id="staffTableBody"></tbody></table></div>
+            </div>
+            <div class="tab-pane fade" id="tabDepartments">
+              <div class="d-flex justify-content-between mb-2"><h2 class="h6">Department</h2><button class="btn btn-sm btn-primary" id="btnAddDepartment">Add Department</button></div>
+              <div class="table-responsive"><table class="table table-hover align-middle"><thead><tr><th>Department</th><th class="text-end">Actions</th></tr></thead><tbody id="departmentTableBody"></tbody></table></div>
             </div>
           </div>
+          <p class="small text-muted mt-3 mb-0">สิทธิ์การใช้งาน: ระบบอนุญาตให้เพิ่ม/แก้ไข/ลบได้เฉพาะ Role = Admin เท่านั้น</p>
         </div>
       </div>
-
-      <div class="grid three" style="margin-top:16px;">
-        <div class="card">
-          <h2>รายชื่อแพทย์</h2>
-          <div class="form-grid" style="grid-template-columns:1fr">
-            <input id="doctorNameManage" placeholder="Name">
-            <input id="doctorDepartmentManage" placeholder="Department">
-            <input id="doctorSpecialtyManage" placeholder="Specialty">
-            <select id="doctorTypeManage"><option>Full-time</option><option>Part-time</option></select>
-            <button type="button" class="btn primary" id="saveDoctor">Add / Update Doctor</button>
-          </div>
-          <div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>Name</th><th>Department</th><th>Specialty</th><th>Type</th><th>Actions</th></tr></thead><tbody id="doctorTable"></tbody></table></div>
-        </div>
-        <div class="card">
-          <h2>ผู้ใช้งาน</h2>
-          <div class="form-grid" style="grid-template-columns:1fr">
-            <input id="staffIdManage" maxlength="6" placeholder="StaffID 6 ตัวอักษร">
-            <input id="staffNameManage" placeholder="Name">
-            <select id="staffRoleManage"><option>User</option><option>Admin</option></select>
-            <button type="button" class="btn primary" id="saveStaff">Add / Update Staff</button>
-          </div>
-          <div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>StaffID</th><th>Name</th><th>Role</th><th>Actions</th></tr></thead><tbody id="staffTable"></tbody></table></div>
-        </div>
-        <div class="card">
-          <h2>Department</h2>
-          <div class="form-grid" style="grid-template-columns:1fr">
-            <input id="departmentManage" placeholder="Department">
-            <button type="button" class="btn primary" id="saveDepartment">Add / Update Department</button>
-          </div>
-          <div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>Department</th><th>Actions</th></tr></thead><tbody id="departmentTable"></tbody></table></div>
-        </div>
-      </div>
-      <p class="muted">สิทธิ์การใช้งาน: ระบบอนุญาตให้เพิ่ม/แก้ไข/ลบได้เฉพาะ Role = Admin เท่านั้น</p>
     </section>
 
-    <section id="view-visualization" class="view">
-      <div class="card">
-        <h1>Visualization</h1>
-        <div class="actions" style="margin-top:0">
-          <button type="button" class="btn" id="refreshVisualization">รีเฟรช</button>
-          <button type="button" class="btn" id="exportCsv">Export .CSV</button>
+    <section id="view-visualization" class="app-view d-none">
+      <div class="card app-card mb-4">
+        <div class="card-header d-lg-flex justify-content-between align-items-center">
+          <div>
+            <p class="eyebrow mb-1">Dashboard</p>
+            <h1 class="h4 mb-0">Visualization</h1>
+          </div>
+          <div class="d-flex gap-2 mt-3 mt-lg-0">
+            <button id="btnRefreshViz" class="btn btn-sm btn-primary">รีเฟรช</button>
+            <button id="btnExportXlsx" class="btn btn-sm btn-outline-primary">Export .XLSX</button>
+          </div>
         </div>
-        <div class="filters" style="margin-top:12px">
-          <input id="filterStartDate" type="date" aria-label="Start date">
-          <input id="filterEndDate" type="date" aria-label="End date">
-          <select id="filterDepartment" aria-label="Department"></select>
-          <select id="filterSource" aria-label="Source"></select>
-          <select id="filterSeverity" aria-label="Severity"></select>
-          <select id="filterProcess" aria-label="Process"></select>
-          <input id="filterDrugGroup" list="drugGroupList" placeholder="Drug group">
-          <input id="filterSubclass" list="subclassList" placeholder="Subclass">
-          <input id="filterGeneric" placeholder="Generic / Drug">
-          <select id="filterConsult" aria-label="Consult"></select>
-          <select id="filterErrorType" aria-label="Error type"></select>
-          <input id="filterSpecialty" placeholder="Specialty">
-          <input id="filterDoctor" placeholder="Doctor">
-          <input id="filterDoctorType" placeholder="Doctor type">
-        </div>
-        <div class="actions">
-          <button type="button" class="btn primary" id="applyFilters">Apply</button>
-          <button type="button" class="btn" id="resetFilters">Reset</button>
+        <div class="card-body">
+          <div class="row g-2 align-items-end">
+            <div class="col-md-2"><label class="form-label">Start date</label><input id="vizStart" type="date" class="form-control" /></div>
+            <div class="col-md-2"><label class="form-label">End date</label><input id="vizEnd" type="date" class="form-control" /></div>
+            <div class="col-md-2"><label class="form-label">Department</label><select id="vizDept" class="form-select"></select></div>
+            <div class="col-md-2"><label class="form-label">Source</label><select id="vizSource" class="form-select"></select></div>
+            <div class="col-md-2"><label class="form-label">Severity</label><select id="vizSeverity" class="form-select"></select></div>
+            <div class="col-md-2"><label class="form-label">Process</label><select id="vizProcess" class="form-select"></select></div>
+            <div class="col-md-2"><label class="form-label">Drug group</label><select id="vizDrugGroup" class="form-select"></select></div>
+            <div class="col-md-2"><label class="form-label">Subclass</label><select id="vizSubclass" class="form-select"></select></div>
+            <div class="col-md-2"><label class="form-label">Generic</label><select id="vizGeneric" class="form-select"></select></div>
+            <div class="col-md-2"><label class="form-label">Consult</label><select id="vizConsult" class="form-select"></select></div>
+            <div class="col-md-2"><label class="form-label">Error type</label><select id="vizErrorType" class="form-select"></select></div>
+            <div class="col-md-2"><label class="form-label">Specialty</label><select id="vizSpecialty" class="form-select"></select></div>
+            <div class="col-md-2"><label class="form-label">Doctor</label><select id="vizDoctor" class="form-select"></select></div>
+            <div class="col-md-2"><label class="form-label">Doctor type</label><select id="vizDoctorType" class="form-select"></select></div>
+            <div class="col-md-4 d-flex gap-2"><button id="btnApplyViz" class="btn btn-primary">Apply</button><button id="btnResetViz" class="btn btn-outline-secondary">Reset</button></div>
+          </div>
         </div>
       </div>
 
-      <div class="grid four" style="margin-top:16px;">
-        <div class="metric"><div id="metricTotal" class="value">-</div><div class="label">Reports ทั้งหมด</div></div>
-        <div class="metric"><div id="metricMonth" class="value">-</div><div class="label">Reports เดือนปัจจุบัน</div></div>
-        <div class="metric"><div id="metricConsult" class="value">-</div><div class="label">% Consult ปรับแผน</div></div>
-        <div class="metric"><div id="metricFullTime" class="value">-</div><div class="label">% Full-time</div></div>
+      <div class="row g-3 mb-3">
+        <div class="col-md-3"><div class="metric-card"><span>Reports ทั้งหมด</span><strong id="metricTotal">-</strong></div></div>
+        <div class="col-md-3"><div class="metric-card"><span>Reports เดือนปัจจุบัน</span><strong id="metricThisMonth">-</strong></div></div>
+        <div class="col-md-3"><div class="metric-card"><span>% Consult ปรับแผน</span><strong id="metricConsultAdjusted">-</strong></div></div>
+        <div class="col-md-3"><div class="metric-card"><span>% Full-time</span><strong id="metricFullTime">-</strong></div></div>
       </div>
 
-      <div class="grid two" style="margin-top:16px;">
-        <div class="card"><h2>Reports by Department</h2><div id="chartDepartment"></div></div>
-        <div class="card"><h2>Reports by Severity</h2><div id="chartSeverity"></div></div>
-        <div class="card"><h2>Reports by Process</h2><div id="chartProcess"></div></div>
-        <div class="card"><h2>Trend by Month</h2><div id="chartMonth"></div></div>
-        <div class="card"><h2>Reports by Drug Group</h2><p class="muted">นับจากยา 1 + ยา 2 โดยอ้างอิง Medication master</p><div id="chartDrugGroup"></div></div>
-        <div class="card"><h2>Top Drugs Involved</h2><p class="muted">รวมรายการยาที่เกี่ยวข้องทั้งตัวที่ 1 และตัวที่ 2</p><div id="chartDrugName"></div></div>
-        <div class="card"><h2>Reports by Doctor</h2><div id="chartDoctor"></div></div>
-        <div class="card"><h2>Drug Group × Severity</h2><p class="muted">ช่วยหา drug group ที่มี severity สูง</p><div id="tableDrugGroupSeverity"></div></div>
-        <div class="card"><h2>Consult results by Source</h2><div id="tableConsultBySource"></div></div>
-        <div class="card"><h2>Error Type by Source</h2><div id="tableErrorTypeBySource"></div></div>
+      <div class="row g-4">
+        <div class="col-xl-6"><div class="card app-card h-100"><div class="card-header"><h2 class="h6 mb-0">Reports by Department</h2></div><div class="card-body chart-wrap"><canvas id="chartDept"></canvas></div></div></div>
+        <div class="col-xl-6"><div class="card app-card h-100"><div class="card-header"><h2 class="h6 mb-0">Reports by Severity</h2></div><div class="card-body chart-wrap"><canvas id="chartSeverity"></canvas></div></div></div>
+        <div class="col-xl-6"><div class="card app-card h-100"><div class="card-header"><h2 class="h6 mb-0">Reports by Process</h2></div><div class="card-body chart-wrap"><canvas id="chartProcess"></canvas></div></div></div>
+        <div class="col-xl-6"><div class="card app-card h-100"><div class="card-header"><h2 class="h6 mb-0">Trend by Month</h2></div><div class="card-body chart-wrap"><canvas id="chartMonth"></canvas></div></div></div>
+        <div class="col-xl-6"><div class="card app-card h-100"><div class="card-header"><h2 class="h6 mb-0">Reports by Drug Group</h2><div class="small text-muted">นับจากยา 1 + ยา 2 โดยอ้างอิง Medication master</div></div><div class="card-body chart-wrap"><canvas id="chartDrugGroup"></canvas></div></div></div>
+        <div class="col-xl-6"><div class="card app-card h-100"><div class="card-header"><h2 class="h6 mb-0">Top Drugs Involved</h2><div class="small text-muted">รวมรายการยาที่เกี่ยวข้องทั้งตัวที่ 1 และตัวที่ 2</div></div><div class="card-body chart-wrap"><canvas id="chartDrugName"></canvas></div></div></div>
+        <div class="col-xl-6"><div class="card app-card h-100"><div class="card-header"><h2 class="h6 mb-0">Reports by Doctor</h2></div><div class="card-body chart-wrap"><canvas id="chartDoctor"></canvas></div></div></div>
+        <div class="col-xl-6"><div class="card app-card h-100"><div class="card-header"><h2 class="h6 mb-0">Drug Group × Severity</h2><div class="small text-muted">ช่วยหา drug group ที่มี severity สูง</div></div><div class="card-body"><div id="drugGroupSeverityMatrix" class="table-responsive"></div></div></div></div>
+        <div class="col-xl-6"><div class="card app-card h-100"><div class="card-header"><h2 class="h6 mb-0">Consult results by Source</h2></div><div class="card-body"><div id="consultBySourceBars" class="stacked-list"></div></div></div></div>
+        <div class="col-xl-6"><div class="card app-card h-100"><div class="card-header"><h2 class="h6 mb-0">Error Type by Source</h2></div><div class="card-body"><div id="errorTypeBySourceBars" class="stacked-list"></div></div></div></div>
       </div>
     </section>
   </main>
 
-  <div id="apiModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="apiModalTitle">
-    <div class="modal">
-      <div class="modal-header">
-        <h2 id="apiModalTitle">ตั้งค่า API URL</h2>
-        <button type="button" class="btn small" id="closeApiSettings">ปิด</button>
+  <div id="toastHost" class="toast-container position-fixed bottom-0 end-0 p-3"></div>
+
+  <div class="modal fade" id="apiModal" tabindex="-1">
+    <div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">ตั้งค่า API URL</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <label class="form-label">Web App URL / Edge Function URL</label>
+        <input id="apiUrlInput" class="form-control" placeholder="https://.../exec หรือ https://.../functions/v1/pe-api" />
+        <div class="form-text">ระบบเก็บ URL ใน localStorage เฉพาะเครื่องนี้ ถ้า LOCK_API_URL=true จะใช้ค่าใน config เท่านั้น</div>
       </div>
-      <p class="muted">Web App URL / Edge Function URL จะไม่แสดงในกล่องสถานะระบบหน้าแรก</p>
-      <div class="field">
-        <label for="apiUrlInput">Web App URL / Edge Function URL</label>
-        <input id="apiUrlInput" placeholder="https://script.google.com/macros/s/.../exec">
-        <div id="apiLockHelp" class="help">ถ้า LOCK_API_URL=true ระบบจะใช้ค่าใน config.js เท่านั้น</div>
-      </div>
-      <div class="actions">
-        <button type="button" class="btn primary" id="saveApiUrl">บันทึก</button>
-        <button type="button" class="btn" id="cancelApiUrl">ยกเลิก</button>
-      </div>
-    </div>
+      <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal">ยกเลิก</button><button id="btnSaveApiUrl" class="btn btn-primary" data-bs-dismiss="modal">บันทึก</button></div>
+    </div></div>
   </div>
 
-  <div id="toastWrap" class="toast-wrap" aria-live="polite"></div>
+  <div class="modal fade" id="doctorModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">Doctor</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body row g-3">
+      <input type="hidden" id="doctorOriginalName" />
+      <div class="col-12"><label class="form-label">Name *</label><input id="doctorName" class="form-control" /></div>
+      <div class="col-md-6"><label class="form-label">Department</label><select id="doctorDept" class="form-select"></select></div>
+      <div class="col-md-6"><label class="form-label">Specialty</label><input id="doctorSpecialty" class="form-control" /></div>
+      <div class="col-md-6"><label class="form-label">Type</label><select id="doctorTypeEdit" class="form-select"><option value="">-</option><option>Full-time</option><option>Part-time</option></select></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button id="btnSaveDoctor" class="btn btn-primary">Save</button></div>
+  </div></div></div>
 
+  <div class="modal fade" id="staffModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">Staff</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body row g-3">
+      <input type="hidden" id="staffOriginalId" />
+      <div class="col-md-6"><label class="form-label">StaffID *</label><input id="staffIdEdit" class="form-control" /></div>
+      <div class="col-md-6"><label class="form-label">Name *</label><input id="staffName" class="form-control" /></div>
+      <div class="col-md-6"><label class="form-label">Role *</label><select id="staffRole" class="form-select"><option>User</option><option>Admin</option></select></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button id="btnSaveStaff" class="btn btn-primary">Save</button></div>
+  </div></div></div>
+
+  <div class="modal fade" id="departmentModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">Department</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <input type="hidden" id="departmentOriginalName" />
+      <label class="form-label">Department *</label><input id="departmentNameEdit" class="form-control" />
+    </div>
+    <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button id="btnSaveDepartment" class="btn btn-primary">Save</button></div>
+  </div></div></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="assets/js/config.js"></script>
-  <script src="assets/js/api.js"></script>
   <script src="assets/js/app.js"></script>
 </body>
 </html>
