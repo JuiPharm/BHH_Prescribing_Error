@@ -5,7 +5,7 @@
 // 3) Keep LOCK_API_URL=true for production to prevent users from overriding the API URL.
 
 window.PE_CONFIG = {
-  API_URL: 'https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec',
+  API_URL: 'https://script.google.com/macros/s/AKfycbyIy7tJrZEAeesfARaBVgPaPCt4WXqcLRCIPOJ2_zPWxWCxWZO0pjYrJeCF6m-DEdjF/exec',
   API_MODE: 'jsonp',
   LOCK_API_URL: true,
   VERSION: 'github-v5-gas-sheet-fast-hidden-api-2026-05-29',
