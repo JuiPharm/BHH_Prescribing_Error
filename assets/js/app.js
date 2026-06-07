@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  const CONFIG = Object.assign({ API_URL: '', API_MODE: 'jsonp', LOCK_API_URL: false, VERSION: 'druggroup-fix-2026-05-04' }, window.PE_CONFIG || {});
+  const CONFIG = Object.assign({ API_URL: 'https://script.google.com/macros/s/AKfycbyIy7tJrZEAeesfARaBVgPaPCt4WXqcLRCIPOJ2_zPWxWCxWZO0pjYrJeCF6m-DEdjF/exec', API_MODE: 'jsonp', LOCK_API_URL: true, VERSION: '1.4.0' }, window.PE_CONFIG || {});
   const API_URL_STORAGE_KEY = 'pe_api_url';
   const API_CACHE_TTL = { getReferenceData: 10 * 60 * 1000, getVisualization: 90 * 1000, getMedicationIndex: 30 * 60 * 1000 };
 
@@ -55,14 +55,7 @@
   }
   function renderApiUrl() {
     const url = getApiUrl();
-    text('apiUrlText', CONFIG.LOCK_API_URL ? '(locked by config)' : (url || 'Not configured'));
-    setApiStatus(url ? 'Ready' : 'Not configured', url ? 'success' : 'danger');
-    const input = $('apiUrlInput'); if (input) input.value = url;
-    if (CONFIG.LOCK_API_URL) {
-      const btn = $('btnApiSettings'); if (btn) btn.style.display = 'none';
-      const help = $('apiUrlHelp'); if (help) help.style.display = 'none';
-      const urlText = $('apiUrlText'); if (urlText) urlText.style.display = 'none';
-    }
+    if (!url) setApiStatus('Not configured', 'danger');
   }
   function setApiStatus(label, tone = 'secondary') {
     const el = $('apiStatusText'); if (!el) return;
@@ -203,9 +196,9 @@
   function renderVizList(id, labelAll, items) { renderOptions($(id), items || [], { placeholder: labelAll }); }
 
   async function loadReferenceData(force = false) {
-    text('lastSync', 'Loading…'); setApiStatus('Connecting…', 'secondary');
+    text('lastSyncText', 'Loading…'); setApiStatus('Connecting…', 'secondary');
     const ref = await apiGet('getReferenceData', {}, { useCache: !force });
-    renderReferenceData(ref); text('lastSync', fmtDateTime(new Date())); setApiStatus('Connected', 'success');
+    renderReferenceData(ref); text('lastSyncText', fmtDateTime(new Date())); setApiStatus('Connected', 'success');
   }
 
   function getReportPayload() {
