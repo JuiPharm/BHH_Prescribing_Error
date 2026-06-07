@@ -120,11 +120,11 @@
                 </div>
                 <div class="col-md-4">
                   <label class="form-label">กลุ่มของยา <span class="text-danger">*</span></label>
-                  <select id="drugGroup" class="form-select app-system-filled" disabled required></select>
+                  <select id="drugGroup" class="form-select app-system-filled" required></select>
                 </div>
                 <div class="col-md-4">
                   <label class="form-label">Subclass (กลุ่มย่อย)</label>
-                  <select id="subclass" class="form-select app-system-filled" disabled></select>
+                  <select id="subclass" class="form-select app-system-filled"></select>
                 </div>
                 <div class="col-md-4">
                   <label class="form-label">SEVERITY LEVEL <span class="text-danger">*</span></label>
@@ -184,10 +184,17 @@
             <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabDoctors" type="button">Doctors</button></li>
             <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabStaff" type="button">Staff</button></li>
             <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabDepartments" type="button">Departments</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabMedications" type="button">Medications</button></li>
           </ul>
           <div class="tab-content pt-3">
             <div class="tab-pane fade show active" id="tabDoctors">
-              <div class="d-flex justify-content-between mb-2"><h2 class="h6">รายชื่อแพทย์</h2><button class="btn btn-sm btn-primary" id="btnAddDoctor">Add Doctor</button></div>
+              <div class="d-flex justify-content-between mb-2">
+                <h2 class="h6">รายชื่อแพทย์</h2>
+                <div>
+                  <button class="btn btn-sm btn-outline-secondary me-2" id="btnUploadDoctors">Upload CSV/Excel</button>
+                  <button class="btn btn-sm btn-primary" id="btnAddDoctor">Add Doctor</button>
+                </div>
+              </div>
               <div class="table-responsive"><table class="table table-hover align-middle"><thead><tr><th>Name</th><th>Department</th><th>Specialty</th><th>Type</th><th class="text-end">Actions</th></tr></thead><tbody id="doctorTableBody"></tbody></table></div>
             </div>
             <div class="tab-pane fade" id="tabStaff">
@@ -198,10 +205,26 @@
               <div class="d-flex justify-content-between mb-2"><h2 class="h6">Department</h2><button class="btn btn-sm btn-primary" id="btnAddDepartment">Add Department</button></div>
               <div class="table-responsive"><table class="table table-hover align-middle"><thead><tr><th>Department</th><th class="text-end">Actions</th></tr></thead><tbody id="departmentTableBody"></tbody></table></div>
             </div>
+            <div class="tab-pane fade" id="tabMedications">
+              <div class="d-flex justify-content-between mb-2">
+                <h2 class="h6">ฐานข้อมูลยา</h2>
+                <div>
+                  <button class="btn btn-sm btn-outline-secondary" id="btnUploadMedications">Upload CSV/Excel</button>
+                </div>
+              </div>
+              <p class="text-muted small">ระบบรองรับการอัปโหลดไฟล์ Excel/CSV ที่มีคอลัมน์: GenericName, BrandName, Form, DisplayName, DrugGroup, Subclass<br><strong>หมายเหตุ:</strong> การอัปโหลดจะเป็นการนำข้อมูลใหม่ไป <strong>แทนที่ (Replace All)</strong> ข้อมูลเดิมทั้งหมด</p>
+              <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                <table class="table table-hover align-middle table-sm">
+                  <thead><tr><th>GenericName</th><th>BrandName</th><th>Form</th><th>DrugGroup</th><th>Subclass</th></tr></thead>
+                  <tbody id="medicationTableBody"></tbody>
+                </table>
+              </div>
+            </div>
           </div>
           <p class="small text-muted mt-3 mb-0">สิทธิ์การใช้งาน: ระบบอนุญาตให้เพิ่ม/แก้ไข/ลบได้เฉพาะ Role = Admin เท่านั้น</p>
         </div>
       </div>
+      <input type="file" id="fileUpload" accept=".xlsx, .csv" style="display:none">
     </section>
 
     <section id="view-visualization" class="app-view d-none">

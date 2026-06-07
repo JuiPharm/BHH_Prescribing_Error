@@ -467,16 +467,31 @@
   }
 
   function renderManageData(data) {
-    state.manage = data || { doctors: [], staff: [], departments: [] };
+    state.manage = data || { doctors: [], staff: [], departments: [], medications: [] };
     const doctorBody = $('doctorTableBody'); if (doctorBody) doctorBody.innerHTML = (state.manage.doctors || []).map(d => `<tr><td>${escapeHtml(d.name)}</td><td>${escapeHtml(d.department)}</td><td>${escapeHtml(d.specialty)}</td><td>${escapeHtml(d.type)}</td><td class="text-end"><button class="btn btn-sm btn-outline-primary" data-edit-doctor="${escapeHtml(d.name)}">Edit</button> <button class="btn btn-sm btn-outline-danger" data-del-doctor="${escapeHtml(d.name)}">Delete</button></td></tr>`).join('') || '<tr><td colspan="5" class="text-muted">No data</td></tr>';
     const staffBody = $('staffTableBody'); if (staffBody) staffBody.innerHTML = (state.manage.staff || []).map(s => `<tr><td>${escapeHtml(s.staffId)}</td><td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.role)}</td><td class="text-end"><button class="btn btn-sm btn-outline-primary" data-edit-staff="${escapeHtml(s.staffId)}">Edit</button> <button class="btn btn-sm btn-outline-danger" data-del-staff="${escapeHtml(s.staffId)}">Delete</button></td></tr>`).join('') || '<tr><td colspan="4" class="text-muted">No data</td></tr>';
     const depBody = $('departmentTableBody'); if (depBody) depBody.innerHTML = (state.manage.departments || []).map(d => `<tr><td>${escapeHtml(d)}</td><td class="text-end"><button class="btn btn-sm btn-outline-primary" data-edit-dept="${escapeHtml(d)}">Edit</button> <button class="btn btn-sm btn-outline-danger" data-del-dept="${escapeHtml(d)}">Delete</button></td></tr>`).join('') || '<tr><td colspan="2" class="text-muted">No data</td></tr>';
+    const medBody = $('medicationTableBody'); if (medBody) medBody.innerHTML = (state.manage.medications || []).map(m => `<tr><td>${escapeHtml(m.genericName || '')}</td><td>${escapeHtml(m.brandName || '')}</td><td>${escapeHtml(m.form || '')}</td><td>${escapeHtml(m.drugGroup || '')}</td><td>${escapeHtml(m.subclass || '')}</td></tr>`).join('') || '<tr><td colspan="5" class="text-muted">No data</td></tr>';
   }
   async function loadManageData() { const data = await apiGet('getManageData', {}, { useCache: false }); renderManageData(data); }
   function requireAdmin() { if (!state.admin.ok) { toast('กรุณาตรวจสอบ Admin StaffID ก่อน', 'warning'); return false; } return true; }
   function updateAdminBadge() { const el = $('adminBadge'); if (!el) return; el.className = 'badge align-self-center ' + (state.admin.ok ? 'text-bg-success' : 'text-bg-secondary'); el.textContent = state.admin.ok ? `Admin: ${state.admin.name || state.admin.staffId}` : 'Not verified'; }
 
   function attachEvents() {
+    $('hn')?.addEventListener('blur', (e) => {
+      let val = String(e.target.value || '').trim();
+      if (!val) return;
+      const dashed = val.match(/^07-(\d{2})-(\d{1,6})$/);
+      if (dashed) {
+        e.target.value = '07-' + dashed[1] + '-' + dashed[2].padStart(6, '0');
+        return;
+      }
+      const digits = val.replace(/[^0-9]/g, '');
+      const compact = digits.match(/^07(\d{2})(\d{1,6})$/);
+      if (compact) {
+        e.target.value = '07-' + compact[1] + '-' + compact[2].padStart(6, '0');
+      }
+    });
     document.querySelectorAll('[data-view-link]').forEach(a => a.addEventListener('click', e => { e.preventDefault(); showView(a.dataset.viewLink); }));
     $('btnSaveApiUrl')?.addEventListener('click', () => setApiUrl($('apiUrlInput')?.value || ''));
     $('btnPing')?.addEventListener('click', async () => { try { const h = await apiGet('health', {}, { useCache: false }); setApiStatus('Connected', 'success'); toast(`API OK: ${h.version || CONFIG.VERSION}`, 'success'); } catch (e) { setApiStatus('Failed', 'danger'); toast(e.message, 'error'); } });
@@ -526,6 +541,8 @@
     $('btnSaveDoctor')?.addEventListener('click', saveDoctor);
     $('btnSaveStaff')?.addEventListener('click', saveStaff);
     $('btnSaveDepartment')?.addEventListener('click', saveDepartment);
+    $('btnUploadDoctors')?.addEventListener('click', () => handleBulkUpload('Doctors'));
+    $('btnUploadMedications')?.addEventListener('click', () => handleBulkUpload('Medications'));
     document.addEventListener('click', (e) => {
       const target = e.target;
       if (!(target instanceof Element)) return;
@@ -558,6 +575,61 @@
     const delDoctor = t.getAttribute('data-del-doctor'); if (delDoctor && requireAdmin() && confirm(`Delete doctor: ${delDoctor}?`)) { await apiPost('deleteDoctor', { adminStaffId: state.admin.staffId, name: delDoctor }); await loadReferenceData(true); await loadManageData(); }
     const delStaff = t.getAttribute('data-del-staff'); if (delStaff && requireAdmin() && confirm(`Delete staff: ${delStaff}?`)) { await apiPost('deleteStaff', { adminStaffId: state.admin.staffId, staffId: delStaff }); await loadReferenceData(true); await loadManageData(); }
     const delDept = t.getAttribute('data-del-dept'); if (delDept && requireAdmin() && confirm(`Delete department: ${delDept}?`)) { await apiPost('deleteDepartment', { adminStaffId: state.admin.staffId, department: delDept }); await loadReferenceData(true); await loadManageData(); }
+  }
+
+  function handleBulkUpload(type) {
+    if (!requireAdmin()) return;
+    const fileInput = $('fileUpload');
+    if (!fileInput) return;
+    fileInput.onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      fileInput.value = ''; // reset
+      try {
+        const data = await readExcelFile(file);
+        if (!data || !data.length) throw new Error('File is empty or invalid format');
+        if (!confirm(`Are you sure you want to replace all ${type} data with ${data.length} rows?`)) return;
+        
+        const btn = $(`btnUpload${type}`);
+        if (btn) { btn.disabled = true; btn.textContent = 'Uploading...'; }
+        try {
+          await apiPost(`upload${type}`, { adminStaffId: state.admin.staffId, rows: data });
+          clearApiCache();
+          await loadReferenceData(true);
+          if (type === 'Medications') {
+             sessionStorage.removeItem('pe_cache_getMedicationIndex_');
+             await prefetchMedicationIndex();
+          }
+          await loadManageData();
+          toast(`อัปโหลดข้อมูล ${type} เรียบร้อยแล้ว`, 'success');
+        } finally {
+          if (btn) { btn.disabled = false; btn.textContent = 'Upload CSV/Excel'; }
+        }
+      } catch (err) {
+        toast(`Upload failed: ${err.message}`, 'error');
+      }
+    };
+    fileInput.click();
+  }
+
+  function readExcelFile(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = new Uint8Array(e.target.result);
+          const workbook = window.XLSX.read(data, {type: 'array'});
+          const sheetName = workbook.SheetNames[0];
+          const sheet = workbook.Sheets[sheetName];
+          const json = window.XLSX.utils.sheet_to_json(sheet, { defval: '' });
+          resolve(json);
+        } catch (err) {
+          reject(new Error('Failed to parse Excel file.'));
+        }
+      };
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsArrayBuffer(file);
+    });
   }
 
   async function init() {
