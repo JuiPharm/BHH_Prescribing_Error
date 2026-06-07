@@ -669,7 +669,8 @@ function getVisualization_(params) {
     byDoctor: countBy_(rows, 'doctor'),
     drugGroupBySeverity: matrixDrugGroupSeverity_(rows),
     consultBySource: consultBySource_(rows),
-    errorTypeBySource: errorTypeBySource_(rows)
+    errorTypeBySource: errorTypeBySource_(rows),
+    byReporter: countBy_(rows, 'reporterStaffId')
   };
   return { metrics: metrics, aggregates: aggregates, rows: rows, version: APP_VERSION };
 }

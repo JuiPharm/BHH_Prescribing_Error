@@ -278,6 +278,17 @@
         <div class="col-xl-6"><div class="card app-card h-100"><div class="card-header"><h2 class="h6 mb-0">Drug Group × Severity</h2><div class="small text-muted">ช่วยหา drug group ที่มี severity สูง</div></div><div class="card-body"><div id="drugGroupSeverityMatrix" class="table-responsive"></div></div></div></div>
         <div class="col-xl-6"><div class="card app-card h-100"><div class="card-header"><h2 class="h6 mb-0">Consult results by Source</h2></div><div class="card-body"><div id="consultBySourceBars" class="stacked-list"></div></div></div></div>
         <div class="col-xl-6"><div class="card app-card h-100"><div class="card-header"><h2 class="h6 mb-0">Error Type by Source</h2></div><div class="card-body"><div id="errorTypeBySourceBars" class="stacked-list"></div></div></div></div>
+        <div class="col-xl-12">
+          <div class="card app-card h-100">
+            <div class="card-header"><h2 class="h6 mb-0">Reports by Reporter (Top 20)</h2></div>
+            <div class="card-body table-responsive" style="max-height: 400px; overflow-y: auto;">
+              <table class="table table-hover align-middle table-sm">
+                <thead><tr><th>Staff ID</th><th>Name</th><th class="text-end">Reports Count</th></tr></thead>
+                <tbody id="tableReporterBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
   </main>

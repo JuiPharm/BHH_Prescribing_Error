@@ -412,6 +412,14 @@
     renderDrugGroupSeverityMatrix('drugGroupSeverityMatrix', ag.drugGroupBySeverity || []);
     renderTwoSeriesBars('consultBySourceBars', ag.consultBySource || [], 'adjusted', 'notAdjusted', 'ปรับแผน', 'ยืนยันเดิม');
     renderTwoSeriesBars('errorTypeBySourceBars', ag.errorTypeBySource || [], 'medRec', 'other', 'Med Rec/Home Med', 'Other');
+    const reporterBody = $('tableReporterBody');
+    if (reporterBody) {
+      reporterBody.innerHTML = (ag.byReporter || []).slice(0, 20).map(r => {
+        const staffObj = (state.staff || []).find(s => s.staffId === r.label);
+        const name = staffObj ? staffObj.name : 'Unknown';
+        return `<tr><td>${escapeHtml(r.label)}</td><td>${escapeHtml(name)}</td><td class="text-end fw-semibold">${r.count}</td></tr>`;
+      }).join('') || '<tr><td colspan="3" class="text-muted text-center">No data</td></tr>';
+    }
   }
   function chartBase(id) {
     const canvas = $(id); if (!canvas || !window.Chart) return null;
