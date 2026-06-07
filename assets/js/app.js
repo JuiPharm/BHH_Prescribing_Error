@@ -412,11 +412,42 @@
     renderDrugGroupSeverityMatrix('drugGroupSeverityMatrix', ag.drugGroupBySeverity || []);
     renderTwoSeriesBars('consultBySourceBars', ag.consultBySource || [], 'adjusted', 'notAdjusted', 'ปรับแผน', 'ยืนยันเดิม');
     renderTwoSeriesBars('errorTypeBySourceBars', ag.errorTypeBySource || [], 'medRec', 'other', 'Med Rec/Home Med', 'Other');
+    const FALLBACK_STAFF = {
+      "510489": "ภญ.สุมาลี พิทักษ์ลิมนุวงศ์", "516859": "ภญ.ชรินธร อัครวิเนค", "541560": "ภญ.เมย์รยา แซ่โค้ว",
+      "541561": "ภญ.นฤมล กิติไพรวัลย์", "544265": "ภญ.นันทรัตน์ ธีรโรจนวงศ์", "553032": "ภญ.กุลริสา สุวรรณโณ",
+      "506759": "ภญ.ศิริพร สุขรา", "558192": "ภญ.ปิยวรรณ รติวิทยกุล", "560857": "ภญ.นนทพร ธีรกุลพจนีย์",
+      "561621": "ภญ.วริญญา หมัดชา", "506760": "ภญ.ศาริสา แซลิ่ม", "581581": "ภญ.อาทิตยา หมัดสุเด็น",
+      "581580": "ภญ.ชนิกานต์ แสงจันทร์", "595363": "ภญ.อมลมณี ทศพิธนิจธเนศ", "597921": "ภญ.โชติกา พิริยะเพียรพันธ์",
+      "599878": "ภญ.ชุตินันท์ หงส์ศิลาทอง", "610103": "ภญ.ธมลวรรณ คิดถูก", "520294": "ภก.ธวัชชัย แซ่ลิ่ม",
+      "071067": "ภญ.เบญจมาศ เตชวิวรรธน์", "508140": "ภญ.นิภาภัทร ชีวศรีรุ่งเรือง", "521093": "ภญ.เพ็ญผกา วิจักษณ์กุล",
+      "522474": "ภญ.สิริมา จิระนคร", "071037": "ภญ.สหัตยา พงศ์ประยูร", "616163": "ภญ.ปุณยวีร์ กิจชาญวิทย์",
+      "552591": "ภญ.หทัยชนก ธีรธาดากุล", "621995": "ภญ.ดวงธิดา ปรีดาชัยกุล", "070633": "K.สุดฤทัย พิธกิจ",
+      "070934": "K.อาซ๊ะ หลีเส็น", "071168": "K.วรรณนภา ไชยกูล", "071205": "K.นันทภัค สุขสว่างผล",
+      "504325": "K.สินีนาฎ พงศาปาน", "506185": "K.ยุพดี เพชร์สุด", "070767": "K.ยุพเรศ ผดุง",
+      "190130": "K.จิรา ศักดิ์ศรี", "070142": "K.โภควิน หนูเสน", "013493": "K.รัตยา แลแว",
+      "523287": "K.ภัทรินทร์ ชูจันทร์", "534747": "K.สิทธิเดช จิตดี", "533985": "K.ชนิตา ชายเกตุ",
+      "539873": "K.รุ่งทิวา ประดิษฐ์", "091996": "K.แวซง แวดือราแม", "561359": "K.ซาวีย๊ะ อาบูดาโอ๊ะ",
+      "505702": "K.ศราวุธ เสนดำ", "595431": "K.การีหม๊ะ ยานยา", "070957": "ภก.นันทพล สมประยูร",
+      "528513": "K.จิตาภรณ์", "512019": "K.ซันนียา"
+    };
+
     const reporterBody = $('tableReporterBody');
     if (reporterBody) {
       reporterBody.innerHTML = (ag.byReporter || []).slice(0, 20).map(r => {
-        const staffObj = (state.staff || []).find(s => s.staffId === r.label);
-        const name = staffObj ? staffObj.name : 'Unknown';
+        let name = 'Unknown';
+        const lbl = String(r.label).trim();
+        const normLabel = /^\d{1,5}$/.test(lbl) ? lbl.padStart(6, '0') : lbl;
+        
+        const staffObj = (state.staff || []).find(s => {
+          const sId = String(s.staffId).trim();
+          const normS = /^\d{1,5}$/.test(sId) ? sId.padStart(6, '0') : sId;
+          return normS === normLabel;
+        });
+        
+        if (staffObj && staffObj.name) name = staffObj.name;
+        else if (FALLBACK_STAFF[normLabel]) name = FALLBACK_STAFF[normLabel];
+        else if (FALLBACK_STAFF[lbl]) name = FALLBACK_STAFF[lbl];
+        
         return `<tr><td>${escapeHtml(r.label)}</td><td>${escapeHtml(name)}</td><td class="text-end fw-semibold">${r.count}</td></tr>`;
       }).join('') || '<tr><td colspan="3" class="text-muted text-center">No data</td></tr>';
     }
