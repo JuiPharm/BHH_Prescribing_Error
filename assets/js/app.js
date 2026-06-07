@@ -166,9 +166,20 @@
     state.ref = ref || { departments: [], doctors: [], staff: [], lists: {} };
     state.ref.staff = normalizeStaffList(state.ref.staff);
     const lists = state.ref.lists || {};
+    
+    const errorTypesSorted = (lists.errorTypes || []).slice().sort((a, b) => {
+      const aLow = String(a).toLowerCase();
+      const bLow = String(b).toLowerCase();
+      const aIsOther = aLow.includes('other') || aLow.includes('อื่นๆ');
+      const bIsOther = bLow.includes('other') || bLow.includes('อื่นๆ');
+      if (aIsOther && !bIsOther) return 1;
+      if (!aIsOther && bIsOther) return -1;
+      return aLow.localeCompare(bLow, 'th');
+    });
+
     renderOptions($('prescribingErrorFrom'), lists.prescribingErrorFrom || [], { placeholder: 'เลือก…' });
     renderOptions($('consult'), lists.consultResults || [], { placeholder: 'เลือก…' });
-    renderOptions($('errorType'), lists.errorTypes || [], { placeholder: 'เลือก…' });
+    renderOptions($('errorType'), errorTypesSorted, { placeholder: 'เลือก…' });
     const processList = uniqueSorted([...(lists.medicationReconciliation || []), 'Med Rec Transfer', 'None of Above']);
     renderOptions($('medicationReconciliation'), processList, { placeholder: 'เลือก…' });
     renderOptions($('drugGroup'), lists.drugGroups || [], { placeholder: 'เลือก…' });
@@ -188,7 +199,7 @@
     renderVizList('vizSubclass', 'All subclasses', lists.subclasses || []);
     renderVizList('vizGeneric', 'All generics', lists.generics || []);
     renderVizList('vizConsult', 'All consult results', lists.consultResults || []);
-    renderVizList('vizErrorType', 'All error types', lists.errorTypes || []);
+    renderVizList('vizErrorType', 'All error types', errorTypesSorted);
     renderVizList('vizSpecialty', 'All specialties', uniqueSorted((state.ref.doctors || []).map(d => d.specialty)));
     renderVizList('vizDoctor', 'All doctors', uniqueSorted((state.ref.doctors || []).map(d => d.name)));
     renderVizList('vizDoctorType', 'All doctor types', uniqueSorted((state.ref.doctors || []).map(d => d.type)));
